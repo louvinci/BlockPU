@@ -18,7 +18,7 @@ typedef ap_uint<Abit1> ADtype;
 typedef ap_uint<Wbit1> WDtype;
 
 
-
+// linux system
 //template <typename T>
 //T* aligned_alloc(std::size_t num) {
 //    void* ptr = NULL;
@@ -28,20 +28,29 @@ typedef ap_uint<Wbit1> WDtype;
 //    return reinterpret_cast<T*>(ptr);
 //}
 
+//ADtype    in[R1*C1*N1];
+//WDtype    dw_wt[N1*K*K];
+//WDtype    pw1_wt[M1*N1];
+//WDtype    pw2_wt[M1*N1];
+//ADtype    sw_res[R1*C1*N1];
+//ADtype    hw_res[R1*C1*N1];
 
 int main(){
 	
-	ADtype    in[R1*C1*N1];
-	WDtype    dw_wt[N1/DwTn1*K*K*DwTn1];
-	WDtype    pw1_wt[M1*N1];// M*N format haven't packed to M1/Tm*N1/PwTn
-	WDtype    pw2_wt[M1*N1];// N*M format haven't packed to M1/Tm*N1/PwTn
-	ADtype    sw_res[R1*C1*N1];
-	ADtype    hw_res[R1*C1*N1];
+	ADtype*   in     = new ADtype[R1*C1*N1];
+	WDtype*   dw_wt  = new WDtype[N1*K*K];
+	WDtype*   pw1_wt = new WDtype[M1*N1];
+	WDtype*   pw2_wt = new WDtype[M1*N1];
+	ADtype*   sw_res = new ADtype[R1*C1*N1];
+	ADtype*   hw_res = new ADtype[R1*C1*N1];
 
-//std::cout<<sizeof( ap_uint<32> )<<" "<<sizeof( ap_uint<96> )<<std::endl;
 
     std::cout<<"INPUT DATALOAD IN"<<std::endl;
     std::ifstream infile("input.bin",std::ios::in | std::ios::binary);
+    if (!infile) {
+        std::cout << "Error : " << " Input file doesn't exist !" << std::endl;
+        exit(1);
+    }
     infile.read((char*) (in), R1*C1*N1*sizeof(ADtype));
 
 #ifdef DEBUG
@@ -63,6 +72,10 @@ int main(){
 
     std::cout<<"DW WEIGHT DATALOAD IN"<<std::endl;
     std::ifstream wtfile("dw_weight.bin",std::ios::in | std::ios::binary);
+    if (!wtfile) {
+        std::cout << "Error : " << " DW Weight file doesn't exist !" << std::endl;
+        exit(1);
+    }
     wtfile.read((char*) dw_wt, N1*K*K*sizeof(WDtype));
 
     #ifdef DEBUG
@@ -86,6 +99,10 @@ int main(){
 
     std::cout<<"PW1 WEIGHT DATALOAD IN"<<std::endl;
     std::ifstream pwwtfile("pw1_weight.bin",std::ios::in | std::ios::binary);
+    if (!pwwtfile) {
+        std::cout << "Error : " << " PW1 Weight file doesn't exist !" << std::endl;
+        exit(1);
+    }
     pwwtfile.read((char*)pw1_wt, M1*N1*sizeof(WDtype));
 	#ifdef DEBUG
 		for(int j=0;j<M1/Tm1;j++)
@@ -108,6 +125,10 @@ int main(){
 
     std::cout<<"PW2 WEIGHT DATALOAD IN"<<std::endl;
     std::ifstream pwwtfile2("pw2_weight.bin",std::ios::in | std::ios::binary);
+    if (!pwwtfile2) {
+        std::cout << "Error : " << " PW2 Weight file doesn't exist !" << std::endl;
+        exit(1);
+    }
     pwwtfile2.read((char*)pw2_wt,  M1*N1*sizeof(WDtype));
 	#ifdef DEBUG
 		for(int j=0;j<M1/Tm1;j++)
@@ -135,6 +156,10 @@ int main(){
     std::cout<<"Ref Result LOAD"<<std::endl;
     //RxCxM
     std::ifstream resfile("hls_res.bin",std::ios::in | std::ios::binary);
+    if (!resfile) {
+        std::cout << "Error : " << " Result file doesn't exist !" << std::endl;
+        exit(1);
+    }
     resfile.read((char*) sw_res, R1*C1*N1*sizeof(ADtype));
 
     int w_cnt=0;

@@ -6,7 +6,7 @@
 
 template<unsigned Tm,unsigned Tr, unsigned Tc,unsigned Abit,unsigned Accbit,unsigned OutWidth,unsigned Size>
 void QPW2DDR_Reduce( ap_int<Accbit> buf[Tm][Size],
-			     ap_uint<OutWidth> * ddr_burst,
+			         ap_uint<OutWidth> * ddr_burst,
 			 unsigned row,unsigned col,unsigned M,unsigned C)
 {
 	//[R1*C1*M1/Tm1], due to the completely buffer in the M dimmension, here the address is continuous in M dimmension
@@ -19,7 +19,6 @@ void QPW2DDR_Reduce( ap_int<Accbit> buf[Tm][Size],
     static_assert(Tm % NUM == 0,"For ReduceWidth, InWidth mod OutWidth is not 0");
     unsigned offsetC = M/NUM;
     unsigned offsetR = C*M/NUM;
-
 
     PW_R:
 	for(unsigned r = 0; r < Tr; r++) {
@@ -45,17 +44,24 @@ void QPW2DDR_Reduce( ap_int<Accbit> buf[Tm][Size],
 
 
 
-void FusedDW_PW_InMode(ap_uint<InWidth1>  In_ddrsrc[R1*C1*N1/DwTn1],
-		               ap_uint<DwWidth1>  Wt7x7_ddrsrc[N1/DwTn1*7*7],
-		               ap_uint<Pw1Width1> Wt1x1_ddrsrc[M1*N1/PwTn1],
-					   ap_uint<Pw2Width1> Wt2_ddrsrc[N1*M1/Tm1],
-                       ap_uint<OutWidth1> Out_ddr[R1*C1*N1/PwTn1])
+void FusedDW_PW_InMode(
+						   ap_uint<InWidth1> In_ddrsrc[R1*C1*N1/DWinNum],
+						   ap_uint<DwWidth1> Wt7x7_ddrsrc[N1/DWwtNum*7*7],
+						   ap_uint<Pw1Width1> Wt1x1_ddrsrc[M1*N1/PW1wtNum],
+						   ap_uint<Pw2Width1> Wt2_ddrsrc[N1*M1/PW2wtNum],
+						   ap_uint<OutWidth1> Out_ddr[R1*C1*N1/PW2OutNum]
+//		                       ap_uint<InWidth1>  *In_ddrsrc,
+//				               ap_uint<DwWidth1>  *Wt7x7_ddrsrc,
+//				               ap_uint<Pw1Width1> *Wt1x1_ddrsrc,
+//							   ap_uint<Pw2Width1> *Wt2_ddrsrc,
+//		                       ap_uint<OutWidth1> *Out_ddr
+		)
 {
-#pragma HLS INTERFACE m_axi depth=6272    port=In_ddrsrc	offset=slave	bundle=DWIN latency=64 max_read_burst_length=32 num_read_outstanding=16
-#pragma HLS INTERFACE m_axi depth=3136	  port=Wt7x7_ddrsrc offset=slave	bundle=DWWT latency=64 max_read_burst_length=32 num_read_outstanding=16
-#pragma HLS INTERFACE m_axi depth=1024    port=Wt1x1_ddrsrc offset=slave    bundle=PWWT latency=64 max_read_burst_length=32 num_read_outstanding=16
-#pragma HLS INTERFACE m_axi depth=1024    port=Wt2_ddrsrc   offset=slave    bundle=PW2WT latency=64 max_read_burst_length=32 num_read_outstanding=16
-#pragma HLS INTERFACE m_axi depth=6272	  port=Out_ddr      offset=slave	bundle=OUTPUT latency=64 max_write_burst_length=32 num_write_outstanding=16
+#pragma HLS INTERFACE m_axi depth=25088   port=In_ddrsrc	 offset=slave	 bundle=DWIN latency=64 max_read_burst_length=32 num_read_outstanding=16
+#pragma HLS INTERFACE m_axi depth=1568    port=Wt7x7_ddrsrc offset=slave	 bundle=DWWT latency=64 max_read_burst_length=32 num_read_outstanding=16
+#pragma HLS INTERFACE m_axi depth=6144    port=Wt1x1_ddrsrc offset=slave    bundle=PWWT latency=64 max_read_burst_length=32 num_read_outstanding=16
+#pragma HLS INTERFACE m_axi depth=6144    port=Wt2_ddrsrc   offset=slave    bundle=PW2WT latency=64 max_read_burst_length=32 num_read_outstanding=16
+#pragma HLS INTERFACE m_axi depth=25088   port=Out_ddr      offset=slave	 bundle=OUTPUT latency=64 max_write_burst_length=32 num_write_outstanding=16
 
 #pragma HLS INTERFACE s_axilite register	port=return
 
@@ -134,21 +140,6 @@ bool flag=true;
     }else{
     	QPW2DDR_Reduce<PwTn1,Tr1,Tc1,Abit1,Accbit1,OutWidth1,SIZE2>(PWObuff1,Out_ddr,pre_row,pre_col,N1,C1);
     }
-
-//	BlockR:
-//	for(unsigned  rr=0;rr<R1;rr+=Tr1){
-//		BlockC:
-//		for(unsigned cc=0;cc<C1;cc+=Tc1){
-//
-//			DW_Engine<Tr1,Tc1,DwTn1,Abit1,Wbit1,Accbit1,InWidth1,DwWidth1,SIZE1>
-//     		    		(In_ddrsrc,Wt7x7_ddrsrc,coldbuff0,rr,cc,R1,C1,N1);
-//
-//			PW_PW_Fused<Tr1,Tc1,DwTn1,PwTn1,Tm1,Abit1,Wbit1,Accbit1,Pw1Width1,Pw2Width1,SIZE1,SIZE2>
-//			             (Wt1x1_ddrsrc,Wt2_ddrsrc,coldbuff0,PWObuff0,M1,N1);
-//
-//	        QPW2DDR_Reduce<PwTn1,Tr1,Tc1,Abit1,Accbit1,OutWidth1,SIZE2>(PWObuff0,Out_ddr,rr,cc,N1,C1);
-//		}
-//	}
 
 
 }
