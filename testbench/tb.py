@@ -95,12 +95,12 @@ def main():
     R1= 14
     C1= 14
     N1= 16
-    E = 6
+    E = 1
     K=7
     M1= E*N1
     DwTn1 = 8
-    PwTn1 = 4
-    Tm2 = 2 #! this version the weight is not packed
+    PwTn1 = 8
+    Tm2 = 2
 
     datatype = 'int8'
     dw_wt   = dw_weight_gen2(K,N1,DwTn1,datatype,os.path.join(dir,"dw_weight.bin"),False)
