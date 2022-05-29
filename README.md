@@ -45,6 +45,7 @@ pw2conv:HxWx(exN) -> HxWxN 1x1 kernel
 2. :sob:N/Tn=1时DW_engine有错
 2. 当N,M不能整除Tn，Tm时未考虑。Tn,Tm可能的取值：{2，4，6，8，12，16，24，32，48，64}，N/M取值范围：{16，24，32，64，112，184，352}
 3. ```pw_engine.h```中的```loadbram_D12_P8```用于对DwTn=12，PwTn=8的情况进行转换，单未进行测试
+4. :rocket:```PW_PW_Fused```函数中将```InnerPW1```和```OutnerPW2```分开写将增加并行进入和退出的时间。例如pw1最后的comp可以和pw2的in,wt加载并行。应该写到一个循环中。但需要把最外成的循环也展开。否则更深的流水级重复了更多次数
 ## 待添加
 - :rocket:**preload** weight buffer还是很重要的。可以掩盖setuplatnecy + weight transfer latency
 - quant单元，这里没有显式的Norm和ReLU单元，被集成进quant单元。
