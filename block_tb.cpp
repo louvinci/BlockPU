@@ -150,7 +150,7 @@ int main(){
 
 
     std::cout<<"Hardware Compute"<<std::endl;
-    FusedDW_PW_InMode((ABWtype*)in,(WBWtype*)dw_wt,(WBWtype2*)pw1_wt,(WBWtype3*)pw2_wt,(OBWtype*)hw_res);
+    FusedDW_PW_InMode((ABWtype*)in,(WBWtype*)dw_wt,(WBWtype2*)pw1_wt,(WBWtype3*)pw2_wt,(OBWtype*)in,(OBWtype*)hw_res);
 
 
     std::cout<<"Ref Result LOAD"<<std::endl;

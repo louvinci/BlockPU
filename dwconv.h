@@ -18,7 +18,8 @@ void  DW_CONV7x7(ap_uint<ABit>  in[Tn][Tr+6][Tc+6],
 	for(unsigned tn = 0; tn < Tn; tn++) {
 		for(unsigned r = 0; r < Tr+6; r++) {
 			for(unsigned c = 0; c < Tc+6; c++) {
-				ap_int<ABit> tmp = in[tn][r][c];
+				ap_int<ABit> tmp;
+				tmp.range(ABit-1,0)= in[tn][r][c].range(ABit-1,0);
 				std::cout<<tmp<<" ";
 			}
 			std::cout<<std::endl;

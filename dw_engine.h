@@ -9,35 +9,44 @@ void reduceload_axi( ap_uint<InWidth>  *ddr_burst,
 {
 #pragma HLS inline off
 #pragma HLS array_partition variable=buf dim=1 complete
-    //row * S - P, j < (row + Tr - 1) * S + K - P
-	//row+r-3 <0 | row+r-3>=R | col +c-3<0 | col+c-3>=C
+
+	static_assert(InWidth % Abit == 0,"DWIn bandwidth must be divisible by Abit");
+	const unsigned char NUM = InWidth / Abit;
+	const unsigned char tnloops = Tn/NUM;
+
     ap_uint<InWidth> DATA;
-    RA_R:
+
+
+	DwIN_R:
 	for(unsigned r = 0; r < Tr+6; r++) {
-		RA_C:
-        for(unsigned c = 0; c < Tc+6; c++) {
+		DwIN_C:
+		for(unsigned c = 0; c < Tc+6; c++) {
+			DwIN_P:
+			for(unsigned char tnn =0;tnn < tnloops;tnn++){
 #pragma HLS DEPENDENCE false intra variable=buf
 #pragma HLS DEPENDENCE false inter variable=buf
 #pragma HLS PIPELINE II=1
 
-            if (row+r<3 | row+r> R+2 | col +c<3 | col+c>C+2){
-                for(int tn = 0; tn < Tn; tn++) {
-                #pragma HLS UNROLL
-				    buf[tn][r][c].range(Abit-1, 0) = 0;
+				if (row+r<3 | row+r> R+2 | col +c<3 | col+c>C+2){
+					for(unsigned char tn = 0; tn < NUM; tn++) {
+					#pragma HLS UNROLL
+						buf[tnn*NUM+tn][r][c]= 0;
+					}
+				}else{
+
+					DATA = ddr_burst[(row+r-3)*offsetR*tnloops + (col+c-3)*offsetC*tnloops + ch*tnloops + tnn];
+					for(unsigned char tn = 0; tn < NUM; tn++) {
+					#pragma HLS UNROLL
+						buf[tnn*NUM+tn][r][c].range(Abit-1, 0) = DATA.range( (tn+1)*Abit-1, tn*Abit);
+
+					}
+				}
 			}
-            }else{
-            	//unsigned index = (row+r-3)*offsetR + (col+c-3)*offsetC + ch;
-            	//std::cout<<"  index "<<index<<" ";
-                DATA.range(InWidth-1, 0) = ddr_burst[(row+r-3)*offsetR + (col+c-3)*offsetC + ch].range(InWidth-1, 0);
-                for(unsigned tn = 0; tn < Tn; tn++) {
-                #pragma HLS UNROLL
-				    buf[tn][r][c].range(Abit-1, 0) = DATA.range( (tn+1)*Abit-1, tn*Abit);
-			    }
-            }
-            //std::cout<<std::endl;
+			//std::cout<<std::endl;
 		}
-        //std::cout<<std::endl;
+		//std::cout<<std::endl;
 	}
+
 }
 
 template<unsigned Tn,unsigned Wbit,unsigned WtWidth>
@@ -46,24 +55,37 @@ void loadwt7x7_axi( ap_uint<WtWidth> *ddr_burst,
 {
 #pragma HLS inline off
 #pragma HLS array_partition variable=buf dim=1 complete
+	static_assert( WtWidth%Wbit==0,"DWWt bandwidth must be divisible by Wbit");
+	static_assert( Tn%(WtWidth/Wbit)==0,"DwTn must be divisible by WtNUM/cycle");
+	const unsigned char NUM = WtWidth / Wbit;
+	const unsigned char tnloops = Tn/ NUM;
+	const unsigned base1 = 49*tnloops;
+	const unsigned base2 = 7*tnloops;
+
     ap_uint<WtWidth> DATA;
 
-	unsigned r=0,c=0;
+	unsigned short r=0,c=0,tnn=0;
     LW7_L:
-	for(unsigned cnt = 0; cnt < 49; cnt++) {
+	for(unsigned cnt = 0; cnt < 49*tnloops; cnt++) {
 #pragma HLS DEPENDENCE false intra variable=buf
 #pragma HLS DEPENDENCE false inter variable=buf
 #pragma HLS PIPELINE II=1
-		DATA.range(WtWidth-1, 0) = ddr_burst[offset*49+r*7+c].range(WtWidth-1, 0);
-		for(unsigned tn = 0; tn < Tn; tn++) {
+		DATA = ddr_burst[offset*base1+r*base2+c*tnloops+tnn];
+		for(unsigned tn = 0; tn < NUM; tn++) {
 #pragma HLS UNROLL
-			buf[tn][r][c].range(Wbit-1, 0) = DATA.range( (tn+1)*Wbit-1, tn*Wbit);
+			buf[tnn*NUM+tn][r][c].range(Wbit-1, 0) = DATA.range( (tn+1)*Wbit-1, tn*Wbit);
 		}
-		if (c==6){
-			c=0;
-			r+=1;
+
+		if(tnn == tnloops -1){
+			tnn=0;
+			if (c==6){
+				c=0;
+				r+=1;
+			}else{
+				c+=1;
+			}
 		}else{
-			c+=1;
+			tnn+=1;
 		}
 
 	}
@@ -75,6 +97,7 @@ void Q2ColdBuffer(ap_int<Accbit> src[Tn][Tr][Tc],ap_uint<Abit*Tn> dst[Size],unsi
 //#pragma HLS array_partition variable=dst dim=1 complete
 #pragma HLS array_partition variable=src dim=1 complete
 
+	//std::cout<<"Fill Cold Buffer"<<std::endl;
     FillB:
     for(unsigned r=0;r<Tr;r++){
         for(unsigned c=0;c<Tc;c++){
@@ -82,8 +105,8 @@ void Q2ColdBuffer(ap_int<Accbit> src[Tn][Tr][Tc],ap_uint<Abit*Tn> dst[Size],unsi
             for(unsigned tn=0;tn<Tn;tn++){
 #pragma HLS UNROLL
                 dst[offset +r*Tc+c].range((tn+1)*Abit-1,tn*Abit) = src[tn][r][c].range(Abit-1,0);//TODO just clip,plan to add quant operation
-//                ap_int<Abit> tmp =  src[tn][r][c].range(Abit-1,0);
-//                std::cout<<tmp<<" ";
+                //ap_int<Abit> tmp =  src[tn][r][c].range(Abit-1,0);
+                //std::cout<<tmp<<" ";
             }
             //std::cout<<std::endl;
         }
@@ -108,46 +131,52 @@ void DW_Engine(ap_uint<InWidth> *In_ddrsrc,
 	ap_uint<Wbit>   Wbuff1[Tn][7][7];
 	unsigned loops=N/Tn; //TODO offset should be InWidth / Abit
 	bool flag=true;
-	{
-	    reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff0,0,row,col,C*loops,loops,R,C);
-	    loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff0,0);
-	}
-	{
-		reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff1,1,row,col,C*loops,loops,R,C);
-		loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff1,1);
-		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0,0);
-	}
     DWEG1:
-    for(unsigned n=2; n<loops; n++){
-		if(flag){
-			reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff0,n,row,col,C*loops,loops,R,C);
-			loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff0,n);
-			DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff1,Obuff1,Wbuff1,0);
-			Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff0,coldbuff,(n-2)*Tr*Tc);
-			flag=!flag;
-		}else{
-			reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff1,n,row,col,C*loops,loops,R,C);
-			loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff1,n);
-			DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0,0);
-			Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff1,coldbuff,(n-2)*Tr*Tc);
-			flag=!flag;
-		}
+    for(unsigned n=0; n<loops; n++){
+    	if(n==0){
+    		reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff0,0,row,col,C*loops,loops,R,C);
+    	    loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff0,0);
+    	}else if(n==1) {
+    		reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff1,1,row,col,C*loops,loops,R,C);
+    		loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff1,1);
+    		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0,0);
+    	} else{
+    		if(flag){
+				reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff0,n,row,col,C*loops,loops,R,C);
+				loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff0,n);
+				DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff1,Obuff1,Wbuff1,0);
+				Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff0,coldbuff,(n-2)*Tr*Tc);
+    			flag=!flag;
+			}else{
+				reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff1,n,row,col,C*loops,loops,R,C);
+				loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff1,n);
+				DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0,0);
+				Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff1,coldbuff,(n-2)*Tr*Tc);
+				flag=!flag;
+			}
+    	}
+
     }
 
-	if(flag){
-		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff1,Obuff1,Wbuff1,0);
-		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff0,coldbuff,(loops-2)*Tr*Tc);
-		flag=!flag;
-	}else{
-		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0,0);
-		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff1,coldbuff,(loops-2)*Tr*Tc);
-		flag=!flag;
-	}
-	if(flag){
-		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff0,coldbuff,(loops-1)*Tr*Tc);
-	}else{
-		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff1,coldbuff,(loops-1)*Tr*Tc);
-	}
+    if(loops>1){
+    	if(flag){
+    		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff1,Obuff1,Wbuff1,0);
+    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff0,coldbuff,(loops-2)*Tr*Tc);
+    		flag=!flag;
+    	}else{
+    		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0,0);
+    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff1,coldbuff,(loops-2)*Tr*Tc);
+    		flag=!flag;
+    	}
+    	if(flag){
+    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff0,coldbuff,(loops-1)*Tr*Tc);
+    	}else{
+    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff1,coldbuff,(loops-1)*Tr*Tc);
+    	}
+    }else{
+    	DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0,0);
+    	Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff0,coldbuff,0);
+    }
 }
 
 template<unsigned Tr,unsigned Tc,unsigned Tn,unsigned Abit,unsigned Wbit,unsigned Accbit,
