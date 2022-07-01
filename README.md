@@ -1,17 +1,18 @@
 # BlockPU
 hls 编写的细粒度流水核，针对dwconv+pwconv+pwconv的block结构。内部全流水以及手动双缓冲  
-版本：```vitis hls 2020.2```  
+INT8位宽下可达250Mhz    
+版本：```vitis hls 2020.2, viviado 2020.2 vitis 2020.2```  
 
 ## 工程创建
 1. 生成测试文件
 testbench文件夹下中执行```python tb.py```  
 注意```tb.py```中```R1\C1\DwTn1\PwTn1```等参数需要和```block.h```中保持一致，否则测2试失败   
-
 2. 创建工程并进行综合仿真
 打开vitis HLS Command Prompt,在当前目录下执行：
 ```vitis_hls -f build_hls.tcl``` 
 
 3. 输入以下命令选择图形化界面操作
+
 ```vitis_hls -p BPU3Core/```
 
 ## 代码说明
@@ -41,11 +42,12 @@ pw2conv:HxWx(exN) -> HxWxN 1x1 kernel
 - 目前```block_tb.cpp```中开辟的数组为全局数组以避免数据过大局部变量超限，实际上板子测试时，内存分配应该**保持连续地址**，```new```方式并不能保证
 - vitis flow中头文件外必须使用```extern "C"```，顶层变量写成数组样式可以省去axi interface中的depth
 ## 待修改
-1. :sob: **顶层的带宽设置**:目前直接通过并行度和位宽确定的，如```ap_uint<Abit*Tn>```,由于带宽必须是2的幂。这么写会导致访存错误。
-2. :sob:N/Tn=1时DW_engine有错
+1. ~~:sob: **顶层的带宽设置**:目前直接通过并行度和位宽确定的，如```ap_uint<Abit*Tn>```,由于带宽必须是2的幂。这么写会导致访存错误。~~
+2. ~~:sob:N/Tn=1时DW_engine有错~~
 2. 当N,M不能整除Tn，Tm时未考虑。Tn,Tm可能的取值：{2，4，6，8，12，16，24，32，48，64}，N/M取值范围：{16，24，32，64，112，184，352}
 3. ```pw_engine.h```中的```loadbram_D12_P8```用于对DwTn=12，PwTn=8的情况进行转换，单未进行测试
-4. :rocket:```PW_PW_Fused```函数中将```InnerPW1```和```OutnerPW2```分开写将增加并行进入和退出的时间。例如pw1最后的comp可以和pw2的in,wt加载并行。应该写到一个循环中。但需要把最外成的循环也展开。否则更深的流水级重复了更多次数
 ## 待添加
-- :rocket:**preload** weight buffer还是很重要的。可以掩盖setuplatnecy + weight transfer latency
+- [x] :rocket:**preload** weight buffer还是很重要的。可以掩盖setuplatnecy + weight transfer latency,这里已完成preload= 2,4
+- [x] branch-add 已添加
+- [x] 模式1数据流已经构建并上版验证。性能符合预期
 - quant单元，这里没有显式的Norm和ReLU单元，被集成进quant单元。
