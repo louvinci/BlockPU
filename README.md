@@ -3,6 +3,13 @@ hls 编写的细粒度流水核，针对dwconv+pwconv+pwconv的block结构。内
 INT8位宽下可达250Mhz    
 版本：```vitis hls 2020.2, viviado 2020.2 vitis 2020.2```  
 
+linux下需要执行
+```
+sudo apt-get install libc6-dev-amd64
+sudo apt-get install linux-libc-dev:i386
+ln -s /usr/include/asm-generic /usr/include/asm
+```
+```
 ## 工程创建
 1. 生成测试文件
 testbench文件夹下中执行```python tb.py```  
