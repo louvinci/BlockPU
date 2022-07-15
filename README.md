@@ -9,7 +9,7 @@ sudo apt-get install libc6-dev-amd64
 sudo apt-get install linux-libc-dev:i386
 ln -s /usr/include/asm-generic /usr/include/asm
 ```
-```
+
 ## 工程创建
 1. 生成测试文件
 testbench文件夹下中执行```python tb.py```  
@@ -44,6 +44,10 @@ pw2conv:HxWx(exN) -> HxWxN 1x1 kernel
 - 模式0  
 ```(DWPW1_FusedPE+coldbuffer) + PW2core```
 
+## 涉及访存细节
+- 权重**预取**以及**重排**对访存影响很大，这里经过优化```brust```模式充分启用并且掩盖了```setup latency```
+- 第一层的输入数据padding离线完成，后续的padding由输出单元完成。这里局限于```hls```，带判断条件的访存难以启动```brust```
+
 ## 注意事项
 - 由于这里只有```INT8```精度还未添加quant的单元。这里的权重数为```-1,0,1```
 - 目前```block_tb.cpp```中开辟的数组为全局数组以避免数据过大局部变量超限，实际上板子测试时，内存分配应该**保持连续地址**，```new```方式并不能保证
@@ -54,7 +58,6 @@ pw2conv:HxWx(exN) -> HxWxN 1x1 kernel
 2. 当N,M不能整除Tn，Tm时未考虑。Tn,Tm可能的取值：{2，4，6，8，12，16，24，32，48，64}，N/M取值范围：{16，24，32，64，112，184，352}
 3. ```pw_engine.h```中的```loadbram_D12_P8```用于对DwTn=12，PwTn=8的情况进行转换，单未进行测试
 ## 待添加
-- [x] :rocket:**preload** weight buffer还是很重要的。可以掩盖setuplatnecy + weight transfer latency,这里已完成preload= 2,4
 - [x] branch-add 已添加
 - [x] 模式1数据流已经构建并上版验证。性能符合预期
 - quant单元，这里没有显式的Norm和ReLU单元，被集成进quant单元。
