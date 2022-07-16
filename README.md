@@ -16,12 +16,14 @@ testbench文件夹下中执行```python tb.py```
 注意```tb.py```中```R1\C1\DwTn1\PwTn1```等参数需要和```block.h```中保持一致，否则测2试失败   
 2. 创建工程并进行综合仿真
 打开vitis HLS Command Prompt,在当前目录下执行：
-```vitis_hls -f build_hls.tcl``` 
+```vitis_hls -f build_hls.tcl```   
 
-3. 输入以下命令选择图形化界面操作
-
-```vitis_hls -p BPU3Core/```
-
+3. 输入以下命令选择图形化界面操作  
+```vitis_hls -p BPUCore/```  
+4. 导入vivado    
+经测试，单个axi-smart桥，和多桥性能差别很小。
+5.  vitis sdk 测试    
+ 注意lscript.ld中stack size需要调大 0x20000000
 ## 代码说明
 ``block.cpp``:目前的top文件，函数``FusedDW_PW_InMode``为**模式1**数据流     
 ```dw_engine.h```:DWcore单元包含数据、权重加载与计算操作  
@@ -46,7 +48,7 @@ pw2conv:HxWx(exN) -> HxWxN 1x1 kernel
 
 ## 涉及访存细节
 - 权重**预取**以及**重排**对访存影响很大，这里经过优化```brust```模式充分启用并且掩盖了```setup latency```
-- 第一层的输入数据padding离线完成，后续的padding由输出单元完成。这里局限于```hls```，带判断条件的访存难以启动```brust```
+- 第一层的输入数据padding离线完成，输出单元仅仅输出有效数据，中间层输入可以另立一个置零函数。这里局限于```hls```，带判断条件的访存难以启动```brust```
 
 ## 注意事项
 - 由于这里只有```INT8```精度还未添加quant的单元。这里的权重数为```-1,0,1```
