@@ -11,8 +11,8 @@ void reduceload_axi( ap_uint<InWidth>  *ddr_burst,
 #pragma HLS array_partition variable=buf dim=1 complete
 
 	static_assert(InWidth % Abit == 0,"DWIn bandwidth must be divisible by Abit");
-	const unsigned char NUM = InWidth / Abit;
-	const unsigned char tnloops = Tn/NUM;
+	const unsigned short NUM = InWidth / Abit;
+	const unsigned short tnloops = Tn/NUM;
 
     ap_uint<InWidth> DATA;
 
@@ -21,30 +21,28 @@ void reduceload_axi( ap_uint<InWidth>  *ddr_burst,
 	for(unsigned r = 0; r < Tr+6; r++) {
 		DwIN_C:
 		for(unsigned c = 0; c < Tc+6; c++) {
+			ap_uint<InWidth>  * brust_addr = ddr_burst + (row+r-3)*offsetR*tnloops + (col+c-3)*offsetC*tnloops + ch*tnloops;
 			DwIN_P:
-			for(unsigned char tnn =0;tnn < tnloops;tnn++){
+			for(unsigned short tnn =0;tnn < tnloops;tnn++){ //tnn < tnloops
 #pragma HLS DEPENDENCE false intra variable=buf
 #pragma HLS DEPENDENCE false inter variable=buf
 #pragma HLS PIPELINE II=1
 
 				if (row+r<3 | row+r> R+2 | col +c<3 | col+c>C+2){
 					for(unsigned char tn = 0; tn < NUM; tn++) {
-					#pragma HLS UNROLL
+#pragma HLS UNROLL
 						buf[tnn*NUM+tn][r][c]= 0;
 					}
 				}else{
-
-					DATA = ddr_burst[(row+r-3)*offsetR*tnloops + (col+c-3)*offsetC*tnloops + ch*tnloops + tnn];
+					//DATA = ddr_burst[(row+r-3)*offsetR*tnloops + (col+c-3)*offsetC*tnloops + ch*tnloops + tnn];
+					DATA = brust_addr[tnn];
 					for(unsigned char tn = 0; tn < NUM; tn++) {
-					#pragma HLS UNROLL
+#pragma HLS UNROLL
 						buf[tnn*NUM+tn][r][c].range(Abit-1, 0) = DATA.range( (tn+1)*Abit-1, tn*Abit);
-
 					}
 				}
 			}
-			//std::cout<<std::endl;
 		}
-		//std::cout<<std::endl;
 	}
 
 }
@@ -57,10 +55,11 @@ void loadwt7x7_axi( ap_uint<WtWidth> *ddr_burst,
 #pragma HLS array_partition variable=buf dim=1 complete
 	static_assert( WtWidth%Wbit==0,"DWWt bandwidth must be divisible by Wbit");
 	static_assert( Tn%(WtWidth/Wbit)==0,"DwTn must be divisible by WtNUM/cycle");
-	const unsigned char NUM = WtWidth / Wbit;
-	const unsigned char tnloops = Tn/ NUM;
+	const unsigned NUM = WtWidth / Wbit;
+	const unsigned tnloops = Tn/ NUM;
 	const unsigned base1 = 49*tnloops;
 	const unsigned base2 = 7*tnloops;
+	ap_uint<WtWidth> * base_brust = ddr_burst + offset*base1;
 
     ap_uint<WtWidth> DATA;
 
@@ -70,7 +69,8 @@ void loadwt7x7_axi( ap_uint<WtWidth> *ddr_burst,
 #pragma HLS DEPENDENCE false intra variable=buf
 #pragma HLS DEPENDENCE false inter variable=buf
 #pragma HLS PIPELINE II=1
-		DATA = ddr_burst[offset*base1+r*base2+c*tnloops+tnn];
+		//DATA = ddr_burst[offset*base1+r*base2+c*tnloops+tnn]; this method is hard to infer for the synthezier
+		DATA = base_brust[cnt];
 		for(unsigned tn = 0; tn < NUM; tn++) {
 #pragma HLS UNROLL
 			buf[tnn*NUM+tn][r][c].range(Wbit-1, 0) = DATA.range( (tn+1)*Wbit-1, tn*Wbit);

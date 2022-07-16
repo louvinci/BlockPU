@@ -70,14 +70,14 @@ void QPW2DDR_Reduce_old( ap_int<Accbit> buf[Tm][Size],
 
 }
 
+//the address is continuous in M dimmension
 template<unsigned Tm,unsigned Tr, unsigned Tc,unsigned Abit,unsigned Accbit,unsigned OutWidth,unsigned Size>
-void QPW2DDR_Reduce( ap_int<Accbit> buf[Tm][Size],
-		             ap_uint<OutWidth> * br_ddr_burst,
-			         ap_uint<OutWidth> * ddr_burst,
+void QPW2DDR_Reduce_old2( ap_int<Accbit> buf[Tm][Size],
+		             ap_uint<OutWidth> * branch_ddr,
+			         ap_uint<OutWidth> * out_ddr,
 			 unsigned row,unsigned col,unsigned M,unsigned C)
 {
 
-	//[R1*C1*M1/Tm1], due to the completely buffer in the M dimmension, here the address is continuous in M dimmension
 #pragma HLS inline off
 #pragma HLS array_partition variable=buf dim=1 complete
 	const unsigned short BLOCK = Tr*Tc;
@@ -92,14 +92,18 @@ void QPW2DDR_Reduce( ap_int<Accbit> buf[Tm][Size],
     unsigned offsetC  = M/NUM;
     unsigned offsetR  = C*M/NUM;
     unsigned off_addr =  row*offsetR +col*offsetC;
-    unsigned addr = 0;
+    unsigned addr = 0,cnt2=0;
 
     PWDDR:
 	for(unsigned cnt = 0; cnt < loops; cnt++) {
 #pragma HLS PIPELINE II=1
 
-		addr = off_addr + r*offsetR + c*offsetC + t*tile+tm;
-		DATA_i = br_ddr_burst[addr];
+		//addr = off_addr + r*offsetR + c*offsetC + t*tile+tm;
+		addr = off_addr + r*offsetR;
+		ap_uint<OutWidth> * branch_brust = branch_ddr + addr;
+		ap_uint<OutWidth> * out_brust = out_ddr + addr;
+
+		DATA_i = branch_brust[cnt2];
 		for(unsigned ii=0;ii<NUM;ii++){
 #pragma HLS UNROLL
 			ap_int<Abit> tmp1 = DATA_i.range((ii+1)*Abit-1, ii*Abit);
@@ -107,7 +111,12 @@ void QPW2DDR_Reduce( ap_int<Accbit> buf[Tm][Size],
 			ap_int<Abit> res  = quant_add<Abit,ScaleBit1,Abit>(tmp1,tmp2,1,1);
 			DATA_o.range( (ii+1)*Abit-1, ii*Abit)=res.range(Abit-1, 0);
 		}
-		ddr_burst[addr].range(OutWidth-1, 0)=DATA_o.range(OutWidth-1, 0);
+		out_brust[cnt2]=DATA_o;
+		if(cnt2 == Tc*offsetC-1){
+			cnt2 = 0;
+		}else{
+			cnt2+=1;
+		}
 
 		if(tm == tile-1){
 				tm = 0;
@@ -134,6 +143,69 @@ void QPW2DDR_Reduce( ap_int<Accbit> buf[Tm][Size],
 
 }
 
+//the address is continuous in M dimmension
+template<unsigned Tm,unsigned Tr, unsigned Tc,unsigned Abit,unsigned Accbit,unsigned OutWidth,unsigned Size>
+void QPW2DDR_Reduce( ap_int<Accbit> buf[Tm][Size],
+		             ap_uint<OutWidth> * branch_ddr,
+			         ap_uint<OutWidth> * out_ddr,
+			 unsigned row,unsigned col,unsigned M,unsigned C)
+{
+
+#pragma HLS inline off
+#pragma HLS array_partition variable=buf dim=1 complete
+	const unsigned short BLOCK = Tr*Tc;
+    ap_uint<OutWidth> DATA_o,DATA_i;
+    const unsigned NUM= OutWidth/Abit;
+    const unsigned tile = Tm/NUM;
+    unsigned loops = BLOCK*M/NUM;
+
+
+    unsigned char c=0,t=0,tm=0;
+    static_assert(Tm % NUM == 0,"For ReduceWidth, InWidth mod OutWidth is not 0");
+    unsigned offsetC  = M/NUM;
+    unsigned offsetR  = C*M/NUM;
+    unsigned off_addr =  row*offsetR +col*offsetC;
+    unsigned addr = 0;
+
+    PWDDR:
+	for(unsigned char r = 0; r < Tr; r++) {
+		addr = off_addr + r*offsetR;
+		ap_uint<OutWidth> * branch_brust = branch_ddr + addr;
+		ap_uint<OutWidth> * out_brust = out_ddr + addr;
+
+		for(unsigned cnt2 =0;cnt2 < Tc*offsetC;cnt2++){
+#pragma HLS PIPELINE II=1 rewind
+			DATA_i = branch_brust[cnt2];
+			for(unsigned ii=0;ii<NUM;ii++){
+#pragma HLS UNROLL
+				ap_int<Abit> tmp1 = DATA_i.range((ii+1)*Abit-1, ii*Abit);
+				ap_int<Abit> tmp2 = buf[tm*NUM+ii][t*BLOCK+r*Tc+c].range(Abit-1, 0);
+				ap_int<Abit> res  = quant_add<Abit,ScaleBit1,Abit>(tmp1,tmp2,1,1);
+				DATA_o.range( (ii+1)*Abit-1, ii*Abit)=res.range(Abit-1, 0);
+			}
+			out_brust[cnt2]=DATA_o;
+			if(tm == tile-1){
+				tm = 0;
+				if (t == M/Tm-1){
+					t=0;
+					if(c == Tc-1){
+						c=0;
+
+					}else{
+						c+=1;
+					}
+				}else{
+					t+=1;
+				}
+			}else{
+				tm+=1;
+			}
+		}
+
+
+	}
+
+}
 
 
 void FusedDW_PW_InMode(
@@ -147,11 +219,11 @@ void FusedDW_PW_InMode(
 		)
 {
 #pragma HLS INTERFACE m_axi depth=25088   port=In_ddrsrc	offset=slave	bundle=DWIN latency=64 max_read_burst_length=32 num_read_outstanding=16 num_write_outstanding=1
-#pragma HLS INTERFACE m_axi depth=1568    port=Wt7x7_ddrsrc offset=slave	bundle=DWWT latency=64 max_read_burst_length=32 num_read_outstanding=16 num_write_outstanding=1
-#pragma HLS INTERFACE m_axi depth=6144    port=Wt1x1_ddrsrc offset=slave    bundle=PWWT latency=48 max_read_burst_length=32 num_read_outstanding=96 num_write_outstanding=1
-#pragma HLS INTERFACE m_axi depth=6144    port=Wt2_ddrsrc   offset=slave    bundle=PW2WT latency=48 max_read_burst_length=32 num_read_outstanding=96 num_write_outstanding=1
-#pragma HLS INTERFACE m_axi depth=25088   port=Out_ddr      offset=slave	bundle=OUTPUT latency=64 max_write_burst_length=32 num_write_outstanding=32 num_read_outstanding=1
-#pragma HLS INTERFACE m_axi depth=25088   port=Branch_ddr   offset=slave	bundle=BRANCH latency=64 max_read_burst_length=32 num_read_outstanding=32 num_write_outstanding=1
+#pragma HLS INTERFACE m_axi depth=1568    port=Wt7x7_ddrsrc offset=slave	bundle=DWWT latency=64 max_read_burst_length=64 num_read_outstanding=16 num_write_outstanding=1
+#pragma HLS INTERFACE m_axi depth=6144    port=Wt1x1_ddrsrc offset=slave    bundle=PWWT latency=48 max_read_burst_length=64 num_read_outstanding=32 num_write_outstanding=1
+#pragma HLS INTERFACE m_axi depth=6144    port=Wt2_ddrsrc   offset=slave    bundle=PW2WT latency=48 max_read_burst_length=64 num_read_outstanding=32 num_write_outstanding=1
+#pragma HLS INTERFACE m_axi depth=25088   port=Out_ddr      offset=slave	bundle=OUTPUT latency=64 max_write_burst_length=32 num_write_outstanding=16 num_read_outstanding=1
+#pragma HLS INTERFACE m_axi depth=25088   port=Branch_ddr   offset=slave	bundle=BRANCH latency=64 max_read_burst_length=32 num_read_outstanding=16 num_write_outstanding=1
 
 //#pragma HLS INTERFACE m_axi depth=25088   port=In_ddrsrc	offset=slave	bundle=DWIN latency=64 max_read_burst_length=32
 //#pragma HLS INTERFACE m_axi depth=1568    port=Wt7x7_ddrsrc offset=slave	bundle=DWWT latency=64 max_read_burst_length=32
