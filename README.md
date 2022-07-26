@@ -62,4 +62,4 @@ pw2conv:HxWx(exN) -> HxWxN 1x1 kernel
 ## 待添加
 - [x] branch-add 已添加
 - [x] 模式1数据流已经构建并上版验证。性能符合预期
-- quant单元，这里没有显式的Norm和ReLU单元，被集成进quant单元。
+- [x] quant节点，融合了Norm和ReLU单元。
