@@ -20,11 +20,12 @@ add_files pw_engine.h
 add_files pwconv.h
 
 add_files -tb block_tb.cpp
-add_files -tb ./testbench/dw_weight.bin
-add_files -tb ./testbench/hls_res.bin
 add_files -tb ./testbench/input.bin
-add_files -tb ./testbench/pw1_weight.bin
-add_files -tb ./testbench/pw2_weight.bin
+add_files -tb ./testbench/dw_wt.bin
+add_files -tb ./testbench/norm.bin
+add_files -tb ./testbench/pw1_wt.bin
+add_files -tb ./testbench/pw2_wt.bin
+add_files -tb ./testbench/sw_res.bin
 
 
 

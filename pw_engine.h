@@ -1,5 +1,5 @@
 #include"pwconv.h"
-
+#include"quant_node.h"
 
 template<unsigned Tm,unsigned Tr, unsigned Tc,unsigned Abit,unsigned Accbit,unsigned OutWidth>
 void PW_DDR( ap_int<Accbit> buf[Tm][Tr][Tc],
@@ -42,9 +42,9 @@ void PW_DDR( ap_int<Accbit> buf[Tm][Tr][Tc],
 
 }
 
-template<unsigned Tr, unsigned Tc, unsigned Tm,unsigned Inbit,unsigned Outbit>
+template<unsigned Tr, unsigned Tc, unsigned Tm,unsigned Inbit,unsigned Outbit,unsigned ScaleBit,unsigned IntBit>
 void QBramCopy(ap_int<Inbit>  inbuf[Tm][Tr][Tc],
-		       ap_uint<Outbit> outbuf[Tm][Tr][Tc]){
+		       ap_int<Outbit> outbuf[Tm][Tr][Tc],ap_uint<ScaleBit> rescale){
 #pragma HLS inline off
 #pragma HLS array_partition variable=outbuf dim=1 complete
 	DBuffer:
@@ -53,7 +53,9 @@ void QBramCopy(ap_int<Inbit>  inbuf[Tm][Tr][Tc],
 #pragma HLS PIPELINE II=1
 			for(unsigned k=0;k<Tm;k++){
 #pragma HLS UNROLL
-				outbuf[k][r][c].range(Outbit-1,0) = inbuf[k][r][c].range(Outbit-1,0); //TODO quant
+				ap_int<Inbit> in = inbuf[k][r][c];
+				ap_int<Outbit> res = quant<Inbit,Outbit,ScaleBit,IntBit>(in,rescale);
+				outbuf[k][r][c].range(Outbit-1,0) = res.range(Outbit-1,0);
 			}
 		}
 	}
@@ -63,8 +65,8 @@ void QBramCopy(ap_int<Inbit>  inbuf[Tm][Tr][Tc],
 
 template<unsigned Tn,unsigned Tm,unsigned Wbit,unsigned WtWidth>
 void ldwtTm_axiOP( ap_uint<WtWidth> *ddr_burst,
-							 ap_uint<Wbit> buf[PRELOAD][Tm][Tn],
-							 unsigned short m,unsigned short n,unsigned short offset)
+				   ap_int<Wbit> buf[PRELOAD][Tm][Tn],
+				   unsigned short m,unsigned short n,unsigned short offset)
 {
 #pragma HLS inline off
 #pragma HLS array_partition variable=buf dim=2 complete
@@ -104,7 +106,7 @@ void ldwtTm_axiOP( ap_uint<WtWidth> *ddr_burst,
 // wt:M/Tm*N/Tn *Tm*Tn
 template<unsigned Tn,unsigned Tm,unsigned Wbit,unsigned WtWidth>
 void ldwt1x1_axiOP( ap_uint<WtWidth> *ddr_burst,
-					ap_uint<Wbit> buf[PRELOAD][Tm][Tn],
+					ap_int<Wbit>     buf[PRELOAD][Tm][Tn],
 					unsigned m,unsigned short n,unsigned short offset)
 {
 #pragma HLS inline off
@@ -147,7 +149,7 @@ template<unsigned Tr,unsigned Tc, unsigned Tn, unsigned Abit,unsigned Size>
 void loadAt1x1_bram(ap_uint<Abit*Tn> src[Size], ap_uint<Abit> dst[Tn][Tr][Tc],unsigned offset){
 #pragma HLS inline off
 #pragma HLS array_partition variable=dst dim=1 complete
-//#pragma HLS array_partition variable=src dim=1 complete
+
 	ldAtBram:
     for(unsigned r=0;r<Tr;r++){
         for(unsigned c=0; c<Tc;c++){
@@ -164,7 +166,7 @@ void loadAt1x1_bram(ap_uint<Abit*Tn> src[Size], ap_uint<Abit> dst[Tn][Tr][Tc],un
 
 
 template <unsigned Tr, unsigned Tc,unsigned DwTn,unsigned PwTn,unsigned Abit,unsigned Size>
-void ldbram_ReducedOP(ap_uint<Abit*DwTn> src[Size], ap_uint<Abit> dst[PwTn][PRELOAD][Tr][Tc],unsigned short n){
+void ldbram_ReducedOP(ap_int<Abit*DwTn> src[Size], ap_int<Abit> dst[PwTn][PRELOAD][Tr][Tc],unsigned short n){
 
 #pragma HLS inline off
 #pragma HLS array_partition variable=dst dim=1 complete
@@ -179,7 +181,6 @@ unsigned offset1 = (PRELOAD*n/times)*Tr*Tc;
 unsigned left=0,right=0;
 unsigned char index = 0;
 unsigned short tmp = 0;
-//std::cout<<"======Load Input Preload======"<<std::endl;
 
 ap_uint<Abit*PwTn> DATA;
 	ldAtBram:
@@ -259,21 +260,21 @@ ap_uint<Abit*PwTn> DATA;
 template<unsigned Tr,unsigned Tc,unsigned DwTn,unsigned PwTn, unsigned Tm,unsigned Abit,unsigned Wbit,unsigned Accbit,
          unsigned PW1Width, unsigned dwSize>
 void InnerPW1_OP(ap_uint<PW1Width>  *Wt1ddrsrc,
-			  ap_uint<Abit*DwTn>  coldbuff[dwSize],
-			  ap_int<Accbit>      Obuff[Tm][Tr][Tc],
+			     ap_int<Abit*DwTn>  coldbuff[dwSize],
+			     ap_int<Accbit>     Obuff[Tm][Tr][Tc],
 			  unsigned short m,unsigned short N){
-//#pragma HLS inline off
+#pragma HLS inline off
 
 	const unsigned DPwTn = PRELOAD*PwTn;
 	unsigned loops = N/DPwTn;
 	unsigned short pre_n=0;
 
 	bool flag = true;
-	ap_uint<Wbit>  Wbuff_0[PRELOAD][Tm][PwTn];
-	ap_uint<Abit>  Abuff_0[PwTn][PRELOAD][Tr][Tc];
+	ap_int<Wbit>  Wbuff_0[PRELOAD][Tm][PwTn];
+	ap_int<Abit>  Abuff_0[PwTn][PRELOAD][Tr][Tc];
 
-	ap_uint<Wbit>  Wbuff_1[PRELOAD][Tm][PwTn];
-	ap_uint<Abit>  Abuff_1[PwTn][PRELOAD][Tr][Tc];
+	ap_int<Wbit>  Wbuff_1[PRELOAD][Tm][PwTn];
+	ap_int<Abit>  Abuff_1[PwTn][PRELOAD][Tr][Tc];
 
 
 	PW1N:
@@ -288,13 +289,13 @@ void InnerPW1_OP(ap_uint<PW1Width>  *Wt1ddrsrc,
 				ldwt1x1_axiOP<PwTn,Tm,Wbit,PW1Width>(Wt1ddrsrc,Wbuff_1,m/Tm,n,N/PwTn);
 				ldbram_ReducedOP<Tr,Tc,DwTn,PwTn,Abit,dwSize>(coldbuff,Abuff_1,n);
 				//loadbram_D12_P8<Tr,Tc,DwTn,PwTn,Abit,dwSize>(coldbuff,Abuff_1,n);
-				CONV1x1_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit>(Abuff_0,Wbuff_0,Obuff,pre_n,0);
+				CONV1x1_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit>(Abuff_0,Wbuff_0,Obuff,pre_n);
 				flag = !flag;
 			}else{
 				ldwt1x1_axiOP<PwTn,Tm,Wbit,PW1Width>(Wt1ddrsrc,Wbuff_0,m/Tm,n,N/PwTn);
 				ldbram_ReducedOP<Tr,Tc,DwTn,PwTn,Abit,dwSize>(coldbuff,Abuff_0,n);
 				//loadbram_D12_P8<Tr,Tc,DwTn,PwTn,Abit,dwSize>(coldbuff,Abuff_0,n);
-				CONV1x1_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit>(Abuff_1,Wbuff_1,Obuff,pre_n,0);
+				CONV1x1_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit>(Abuff_1,Wbuff_1,Obuff,pre_n);
 				flag = !flag;
 			}
 		}
@@ -303,9 +304,9 @@ void InnerPW1_OP(ap_uint<PW1Width>  *Wt1ddrsrc,
 	}
 
 	if(flag){
-		CONV1x1_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit>(Abuff_0,Wbuff_0,Obuff,pre_n,0);
+		CONV1x1_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit>(Abuff_0,Wbuff_0,Obuff,pre_n);
 	}else{
-		CONV1x1_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit>(Abuff_1,Wbuff_1,Obuff,pre_n,0);
+		CONV1x1_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit>(Abuff_1,Wbuff_1,Obuff,pre_n);
 	}
 
 
@@ -313,15 +314,16 @@ void InnerPW1_OP(ap_uint<PW1Width>  *Wt1ddrsrc,
 
 
 template<unsigned Tr,unsigned Tc,unsigned PwTn,unsigned Tm,unsigned Abit,unsigned Wbit,unsigned Accbit,
-        unsigned PW2Width,unsigned pwSize>
+        unsigned PW2Width,unsigned ScaleBit,unsigned IntBit,unsigned pwSize>
 void OutnerPW2_OP(ap_uint<PW2Width> *Wt2ddrsrc,
 		       ap_int<Accbit>    PW1Obuff[Tm][Tr][Tc],
 		       ap_int<Accbit>    Outbuff[PwTn][pwSize],
-			   unsigned short n,unsigned short N){
+			   unsigned short n,unsigned short N,
+			   ap_uint<ScaleBit> rescale){
 #pragma HLS inline off
-	ap_uint<Wbit>  Wbuff_0[PRELOAD][PwTn][Tm]; //transpose
-	ap_uint<Wbit>  Wbuff_1[PRELOAD][PwTn][Tm];
-	ap_uint<Abit>  dbuf[Tm][Tr][Tc];
+	ap_int<Wbit>  Wbuff_0[PRELOAD][PwTn][Tm]; //transpose
+	ap_int<Wbit>  Wbuff_1[PRELOAD][PwTn][Tm];
+	ap_int<Abit>  dbuf[Tm][Tr][Tc];
 	unsigned loops = N/(PwTn*PRELOAD);
 	unsigned short pw2m=0,pre_pw2m=0;
 	bool flag = true;
@@ -329,7 +331,7 @@ void OutnerPW2_OP(ap_uint<PW2Width> *Wt2ddrsrc,
 	PW2M:
 	for(unsigned pw2m=0;pw2m<loops;pw2m++){
 		if(pw2m==0){
-			QBramCopy<Tr,Tc,Tm,Accbit,Abit>(PW1Obuff,dbuf);//[Tm][Tr][Tc](outbuf+quant -> inbuf)
+			QBramCopy<Tr,Tc,Tm,Accbit,Abit,ScaleBit,IntBit>(PW1Obuff,dbuf,rescale);//[Tm][Tr][Tc](outbuf+quant -> inbuf)
 			ldwtTm_axiOP<Tm,PwTn,Wbit,PW2Width>(Wt2ddrsrc,Wbuff_0,pw2m,n/Tm,N/PwTn);
 		}else{
 			if(flag){
@@ -354,12 +356,14 @@ void OutnerPW2_OP(ap_uint<PW2Width> *Wt2ddrsrc,
 }
 
 template<unsigned Tr,unsigned Tc,unsigned DwTn,unsigned PwTn,unsigned Tm,unsigned Abit,unsigned Wbit,unsigned Accbit,
-        unsigned PW1Width,unsigned PW2Width,unsigned dwSize,unsigned pwSize>
+        unsigned PW1Width,unsigned PW2Width,unsigned ScaleBit,unsigned IntBit,unsigned dwSize,unsigned pwSize>
 void PW_PW_Fused(ap_uint<PW1Width> *Wt1ddrsrc,
 				 ap_uint<PW2Width> *Wt2ddrsrc,
-			   ap_uint<Abit*DwTn>  coldbuff[dwSize],
-			   ap_int<Accbit> Outbuff2[PwTn][pwSize],
-			   unsigned M,unsigned N){
+			     ap_int<Abit*DwTn>  coldbuff[dwSize],
+			     ap_int<Accbit>     Outbuff2[PwTn][pwSize],
+			     unsigned M,unsigned N,
+			     ap_uint<ScaleBit> rescale
+){
 #pragma HLS inline off
 
 	ap_int<Accbit> PW1Obuff_0[Tm][Tr][Tc];
@@ -379,11 +383,11 @@ void PW_PW_Fused(ap_uint<PW1Width> *Wt1ddrsrc,
 		}else{
 			if(flag){
 				InnerPW1_OP<Tr,Tc,DwTn,PwTn,Tm,Abit,Wbit,Accbit,PW1Width,dwSize>(Wt1ddrsrc,coldbuff,PW1Obuff_1,m,N);
-				OutnerPW2_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit,PW2Width,pwSize>(Wt2ddrsrc,PW1Obuff_0,Outbuff2,pre_m,N);
+				OutnerPW2_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit,PW2Width,ScaleBit,IntBit,pwSize>(Wt2ddrsrc,PW1Obuff_0,Outbuff2,pre_m,N,rescale);
 				flag = !flag;
 			}else{
 				InnerPW1_OP<Tr,Tc,DwTn,PwTn,Tm,Abit,Wbit,Accbit,PW1Width,dwSize>(Wt1ddrsrc,coldbuff,PW1Obuff_0,m,N);
-				OutnerPW2_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit,PW2Width,pwSize>(Wt2ddrsrc,PW1Obuff_1,Outbuff2,pre_m,N);
+				OutnerPW2_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit,PW2Width,ScaleBit,IntBit,pwSize>(Wt2ddrsrc,PW1Obuff_1,Outbuff2,pre_m,N,rescale);
 				flag = !flag;
 			}
 
@@ -393,81 +397,13 @@ void PW_PW_Fused(ap_uint<PW1Width> *Wt1ddrsrc,
 	}
 
 	if(flag){
-		OutnerPW2_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit,PW2Width,pwSize>(Wt2ddrsrc,PW1Obuff_0,Outbuff2,pre_m,N);
+		OutnerPW2_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit,PW2Width,ScaleBit,IntBit,pwSize>(Wt2ddrsrc,PW1Obuff_0,Outbuff2,pre_m,N,rescale);
 	}else{
-		OutnerPW2_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit,PW2Width,pwSize>(Wt2ddrsrc,PW1Obuff_1,Outbuff2,pre_m,N);
+		OutnerPW2_OP<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit,PW2Width,ScaleBit,IntBit,pwSize>(Wt2ddrsrc,PW1Obuff_1,Outbuff2,pre_m,N,rescale);
 	}
 
 }
 
-//template<unsigned Tr,unsigned Tc,unsigned DwTn,unsigned PwTn,unsigned Tm,unsigned Abit,unsigned Wbit,unsigned Accbit,
-//        unsigned PW1Width,unsigned PW2Width,unsigned dwSize,unsigned pwSize>
-//void PW_PW_Optimized(ap_uint<PW1Width> *Wt1ddrsrc,
-//				 ap_uint<PW2Width> *Wt2ddrsrc,
-//			     ap_uint<Abit*DwTn>  coldbuff[dwSize],
-//			     ap_int<Accbit> Outbuff2[PwTn][pwSize],
-//			     unsigned M,unsigned N){
-//#pragma HLS inline off
-//	ap_int<Accbit> PW1Obuff_0[Tm][Tr][Tc];
-//	ap_int<Accbit> PW1Obuff_1[Tm][Tr][Tc];
-//
-//
-//	bool flag = true;
-//
-//	unsigned totalloops = M/Tm * N/PwTn;
-//	unsigned pre_m=0,m=0;
-//	//inner function
-//	unsigned Innerloops = N/PwTn;
-//	unsigned pre_n=0;
-//	ap_uint<Wbit>  pw1Wbuf_0[Tm][PwTn];
-//	ap_uint<Abit>  pw1Abuf_0[PwTn][Tr][Tc];
-//
-//	ap_uint<Wbit>  pw1Wbuf_1[Tm][PwTn];
-//	ap_uint<Abit>  pw1Abuf_1[PwTn][Tr][Tc];
-//
-//
-//	// Outer function
-//	ap_uint<Wbit>  pw2Wbuf_0[PwTn][Tm];
-//	ap_uint<Wbit>  pw2Wbuf_1[PwTn][Tm];
-//	ap_uint<Abit>  dbuf[Tm][Tr][Tc];
-//	unsigned Outerloops = N/PwTn;
-//	unsigned pw2m=0,pre_pw2m=0;
-//	QBramCopy<Tr,Tc,Tm,Accbit,Abit>(PW1Obuff,dbuf);//[Tm][Tr][Tc](outbuf+quant -> inbuf)
-//	loadwtTm_axi<Tm,PwTn,Wbit,PW2Width>(Wt2ddrsrc,Wbuff_0,pw2m,n/Tm,N/PwTn);
-//	CONV1x1_acc<Tr,Tc,Tm,PwTn,Abit,Wbit,Accbit,pwSize>(dbuf,Wbuff_1,Outbuff,n/Tm,pre_pw2m*Tr*Tc);
-//	unsigned pw1n=0,pw1m=0;
-//	PW1PW2O:
-//	for(unsigned cnt = 0; cnt < totalloops;cnt++){
-//		if(cnt==0){
-//			loadwt1x1_axi<PwTn,Tm,Wbit,PW1Width>(Wt1ddrsrc,pw1Wbuf_0,m/Tm,n,N/PwTn);
-//			loadbram_Reduced<Tr,Tc,DwTn,PwTn,Abit,dwSize>(coldbuff,pw1Abuf_0,n);
-//		}else if (cnt==1){
-//			loadwt1x1_axi<PwTn,Tm,Wbit,PW1Width>(Wt1ddrsrc,pw1Wbuf_1,m/Tm,n,N/PwTn);
-//			loadbram_Reduced<Tr,Tc,DwTn,PwTn,Abit,dwSize>(coldbuff,pw1Abuf_1,n);
-//			CONV1x1<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit>(pw1Abuf_0,pw1Wbuf_0,PW1Obuff_0,pre_n,0);
-//		}else if (cnt==2){
-//			loadwt1x1_axi<PwTn,Tm,Wbit,PW1Width>(Wt1ddrsrc,pw1Wbuf_0,m/Tm,n,N/PwTn);
-//			loadbram_Reduced<Tr,Tc,DwTn,PwTn,Abit,dwSize>(coldbuff,pw1Abuf_0,n);
-//			CONV1x1<Tr,Tc,PwTn,Tm,Abit,Wbit,Accbit>(pw1Abuf_1,pw1Wbuf_1,PW1Obuff_1,pre_n,0);
-//
-//		}else{
-//			if(flag){
-//
-//			}else{
-//
-//			}
-//		}
-//		if (pw1n == N-PwTn){
-//			pw1n = 0;
-//			pw1m+=Tm;
-//		}
-//		else{
-//			pw1n += PwTn;
-//		}
-//
-//	}
-//
-//}
 
 
 

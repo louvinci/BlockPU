@@ -1,9 +1,10 @@
 #include"dwconv.h"
+#include"quant_node.h"
 
 // InWidth/Abit >= Tn,will waist some data when InWidth/Abit > Tn
 template<unsigned Tn,unsigned Tr,unsigned Tc,unsigned Abit,unsigned InWidth>
 void reduceload_axi( ap_uint<InWidth>  *ddr_burst,
-					 ap_uint<Abit>      buf[Tn][Tr+6][Tc+6],
+					 ap_int<Abit>      buf[Tn][Tr+6][Tc+6],
 					unsigned ch,  unsigned row,unsigned col,
 					unsigned  offsetR, unsigned offsetC,unsigned R,unsigned C)
 {
@@ -24,8 +25,6 @@ void reduceload_axi( ap_uint<InWidth>  *ddr_burst,
 			ap_uint<InWidth>  * brust_addr = ddr_burst + (row+r-3)*offsetR*tnloops + (col+c-3)*offsetC*tnloops + ch*tnloops;
 			DwIN_P:
 			for(unsigned short tnn =0;tnn < tnloops;tnn++){ //tnn < tnloops
-#pragma HLS DEPENDENCE false intra variable=buf
-#pragma HLS DEPENDENCE false inter variable=buf
 #pragma HLS PIPELINE II=1
 
 				if (row+r<3 | row+r> R+2 | col +c<3 | col+c>C+2){
@@ -46,10 +45,18 @@ void reduceload_axi( ap_uint<InWidth>  *ddr_burst,
 	}
 
 }
+template<unsigned NormWidth,unsigned NormSize>
+void loadnormwt(ap_uint<NormWidth> *Normq_ddrsrc,ap_int<NormWidth> buf[NormSize],unsigned N){
+#pragma HLS inline off
+	for(unsigned i=0;i<N;i++){
+#pragma HLS PIPELINE II=1
+		buf[i].range(NormWidth-1,0) = Normq_ddrsrc[i].range(NormWidth-1,0);
+	}
 
+}
 template<unsigned Tn,unsigned Wbit,unsigned WtWidth>
 void loadwt7x7_axi( ap_uint<WtWidth> *ddr_burst,
-							 ap_uint<Wbit> buf[Tn][7][7],unsigned offset)
+					ap_int<Wbit> buf[Tn][7][7],unsigned offset)
 {
 #pragma HLS inline off
 #pragma HLS array_partition variable=buf dim=1 complete
@@ -59,11 +66,12 @@ void loadwt7x7_axi( ap_uint<WtWidth> *ddr_burst,
 	const unsigned tnloops = Tn/ NUM;
 	const unsigned base1 = 49*tnloops;
 	const unsigned base2 = 7*tnloops;
+
+
 	ap_uint<WtWidth> * base_brust = ddr_burst + offset*base1;
-
     ap_uint<WtWidth> DATA;
-
 	unsigned short r=0,c=0,tnn=0;
+
     LW7_L:
 	for(unsigned cnt = 0; cnt < 49*tnloops; cnt++) {
 #pragma HLS DEPENDENCE false intra variable=buf
@@ -91,67 +99,78 @@ void loadwt7x7_axi( ap_uint<WtWidth> *ddr_burst,
 	}
 }
 
-template<unsigned Tr,unsigned Tc,unsigned Tn,unsigned Abit,unsigned Accbit, unsigned Size>
-void Q2ColdBuffer(ap_int<Accbit> src[Tn][Tr][Tc],ap_uint<Abit*Tn> dst[Size],unsigned offset){
+template<unsigned Tr,unsigned Tc,unsigned Tn,unsigned Abit,unsigned Accbit, unsigned NormWidth,unsigned IntBit,unsigned Size,unsigned NormSize>
+void Q2ColdBuffer(ap_int<Accbit> src[Tn][Tr][Tc],ap_int<Abit*Tn> dst[Size],ap_int<NormWidth> bn_buff[NormSize],unsigned tile_n){
 #pragma HLS inline off
-//#pragma HLS array_partition variable=dst dim=1 complete
 #pragma HLS array_partition variable=src dim=1 complete
+#pragma HLS ARRAY_PARTITION variable=bn_buff dim=1 factor=64 cyclic
 
-	//std::cout<<"Fill Cold Buffer"<<std::endl;
+	static_assert( NormWidth%2==0,"The bit of Norm QWeight and QBias is same");
+	unsigned offset = tile_n*Tr*Tc;
+
+	//std::cout<<"Tile in n: "<<tile_n<<std::endl;
     FillB:
     for(unsigned r=0;r<Tr;r++){
         for(unsigned c=0;c<Tc;c++){
 #pragma HLS PIPELINE II=1
             for(unsigned tn=0;tn<Tn;tn++){
 #pragma HLS UNROLL
-                dst[offset +r*Tc+c].range((tn+1)*Abit-1,tn*Abit) = src[tn][r][c].range(Abit-1,0);//TODO just clip,plan to add quant operation
-                //ap_int<Abit> tmp =  src[tn][r][c].range(Abit-1,0);
-                //std::cout<<tmp<<" ";
+            	ap_int<Accbit>      t_in     =  src[tn][r][c];
+            	ap_int<NormWidth>   t_norm   =  bn_buff[tile_n*Tn+tn];
+            	ap_int<Abit>        res      =  norm_quant<Accbit,Abit,NormWidth,NormWidth/2,IntBit>(t_in,t_norm);
+                dst[offset +r*Tc+c].range((tn+1)*Abit-1,tn*Abit) = res.range(Abit-1,0);
+                //std::cout<<res<<" ";
             }
-            //std::cout<<std::endl;
+           //std::cout<<std::endl;
         }
         //std::cout<<std::endl;
     }
 }
 
 template<unsigned Tr,unsigned Tc,unsigned Tn,unsigned Abit,unsigned Wbit,unsigned Accbit,
-         unsigned InWidth,unsigned WtWidth,unsigned Size>
-void DW_Engine(ap_uint<InWidth> *In_ddrsrc,
-		       ap_uint<WtWidth> *Wt7x7_ddrsrc,
-			   ap_uint<Abit*Tn> coldbuff[Size],
+         unsigned InWidth,unsigned WtWidth,unsigned IntBit,unsigned Size,unsigned NormWidth,unsigned NormSize>
+void DW_Engine(ap_uint<InWidth>      *In_ddrsrc,
+		       ap_uint<WtWidth>      *Wt7x7_ddrsrc,
+			   ap_uint<NormWidth>    *Normq_ddrsrc,
+			   ap_int<Abit*Tn>       coldbuff[Size],
 			   unsigned row,unsigned col,unsigned R, unsigned C,unsigned N){
 
 #pragma HLS inline off
-	ap_uint<Abit>   Abuff0[Tn][Tr+6][Tc+6];
+	ap_int<Abit>    Abuff0[Tn][Tr+6][Tc+6];
 	ap_int<Accbit>  Obuff0[Tn][Tr][Tc];
-	ap_uint<Wbit>   Wbuff0[Tn][7][7];
+	ap_int<Wbit>    Wbuff0[Tn][7][7];
 
-	ap_uint<Abit>   Abuff1[Tn][Tr+6][Tc+6];
+	ap_int<Abit>    Abuff1[Tn][Tr+6][Tc+6];
 	ap_int<Accbit>  Obuff1[Tn][Tr][Tc];
-	ap_uint<Wbit>   Wbuff1[Tn][7][7];
-	unsigned loops=N/Tn; //TODO offset should be InWidth / Abit
+	ap_int<Wbit>    Wbuff1[Tn][7][7];
+
+	ap_int<NormWidth> BN_buff[NormSize];
+
+	unsigned loops=N/Tn;
 	bool flag=true;
     DWEG1:
     for(unsigned n=0; n<loops; n++){
     	if(n==0){
     		reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff0,0,row,col,C*loops,loops,R,C);
     	    loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff0,0);
+    	    loadnormwt<NormWidth,NormSize>(Normq_ddrsrc,BN_buff,N);
+    	    //
     	}else if(n==1) {
     		reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff1,1,row,col,C*loops,loops,R,C);
     		loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff1,1);
-    		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0,0);
+    		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0);
     	} else{
     		if(flag){
 				reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff0,n,row,col,C*loops,loops,R,C);
 				loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff0,n);
-				DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff1,Obuff1,Wbuff1,0);
-				Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff0,coldbuff,(n-2)*Tr*Tc);
+				DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff1,Obuff1,Wbuff1);
+				Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,NormWidth,IntBit,Size,NormSize>(Obuff0,coldbuff,BN_buff,(n-2));
     			flag=!flag;
 			}else{
 				reduceload_axi<Tn,Tr,Tc,Abit,InWidth>(In_ddrsrc,Abuff1,n,row,col,C*loops,loops,R,C);
 				loadwt7x7_axi<Tn,Wbit,WtWidth>(Wt7x7_ddrsrc,Wbuff1,n);
-				DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0,0);
-				Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff1,coldbuff,(n-2)*Tr*Tc);
+				DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0);
+				Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,NormWidth,IntBit,Size,NormSize>(Obuff1,coldbuff,BN_buff,(n-2));
 				flag=!flag;
 			}
     	}
@@ -160,22 +179,22 @@ void DW_Engine(ap_uint<InWidth> *In_ddrsrc,
 
     if(loops>1){
     	if(flag){
-    		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff1,Obuff1,Wbuff1,0);
-    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff0,coldbuff,(loops-2)*Tr*Tc);
+    		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff1,Obuff1,Wbuff1);
+    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,NormWidth,IntBit,Size,NormSize>(Obuff0,coldbuff,BN_buff,(loops-2));
     		flag=!flag;
     	}else{
-    		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0,0);
-    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff1,coldbuff,(loops-2)*Tr*Tc);
+    		DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0);
+    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,NormWidth,IntBit,Size,NormSize>(Obuff1,coldbuff,BN_buff,(loops-2));
     		flag=!flag;
     	}
     	if(flag){
-    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff0,coldbuff,(loops-1)*Tr*Tc);
+    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,NormWidth,IntBit,Size,NormSize>(Obuff0,coldbuff,BN_buff,(loops-1));
     	}else{
-    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff1,coldbuff,(loops-1)*Tr*Tc);
+    		Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,NormWidth,IntBit,Size,NormSize>(Obuff1,coldbuff,BN_buff,(loops-1));
     	}
     }else{
-    	DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0,0);
-    	Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,Size>(Obuff0,coldbuff,0);
+    	DW_CONV7x7<Tr,Tc,Tn,Abit,Wbit,Accbit>(Abuff0,Obuff0,Wbuff0);
+    	Q2ColdBuffer<Tr,Tc,Tn,Abit,Accbit,NormWidth,IntBit,Size,NormSize>(Obuff0,coldbuff,BN_buff,0);
     }
 }
 

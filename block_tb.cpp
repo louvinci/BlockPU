@@ -8,14 +8,18 @@
 
 #define K 7
 // top interface type
-typedef ap_uint<InWidth1> ABWtype;
-typedef ap_uint<DwWidth1> WBWtype;
-typedef ap_uint<Pw1Width1> WBWtype2;
-typedef ap_uint<Pw2Width1> WBWtype3;
-typedef ap_uint<OutWidth1> OBWtype;
+typedef ap_uint<InWidth1>       ABWtype;
+typedef ap_uint<DwWidth1>       WBWtype;
+typedef ap_uint<Pw1Width1>      WBWtype2;
+typedef ap_uint<Pw2Width1>      WBWtype3;
+typedef ap_uint<OutWidth1>      OBWtype;
+typedef ap_uint<NormWidth1>     NWtype;
 
-typedef ap_uint<Abit1> ADtype;
-typedef ap_uint<Wbit1> WDtype;
+
+//read bin type
+typedef ap_uint<Abit1>          ADtype;
+typedef ap_uint<Wbit1>          WDtype;
+typedef ap_uint<32>             Uint32;
 
 
 // linux system
@@ -28,24 +32,26 @@ typedef ap_uint<Wbit1> WDtype;
 //    return reinterpret_cast<T*>(ptr);
 //}
 
-//ADtype    in[R1*C1*N1];
-//WDtype    dw_wt[N1*K*K];
-//WDtype    pw1_wt[M1*N1];
-//WDtype    pw2_wt[M1*N1];
-//ADtype    sw_res[R1*C1*N1];
-//ADtype    hw_res[R1*C1*N1];
 
 int main(){
+	//software parameters, this BPU covers the blocks near the output end.
+
+	unsigned R1=14,C1=14,N1=128,M1=128*6;
 	
-	ADtype*   in     = new ADtype[R1*C1*N1];
-	WDtype*   dw_wt  = new WDtype[N1*K*K];
-	WDtype*   pw1_wt = new WDtype[M1*N1];
-	WDtype*   pw2_wt = new WDtype[M1*N1];
-	ADtype*   sw_res = new ADtype[R1*C1*N1];
-	ADtype*   hw_res = new ADtype[R1*C1*N1];
+	ADtype*   in        =    new ADtype[MXR1*MXC1*MXN1];
+    Uint32*   norm_wt   =    new Uint32[NormSize1*2];
+	WDtype*   dw_wt     =    new WDtype[MXN1*K*K];
+	WDtype*   pw1_wt    =    new WDtype[MXM1*MXN1];
+	WDtype*   pw2_wt    =    new WDtype[MXM1*MXN1];
+	ADtype*   sw_res    =    new ADtype[MXR1*MXC1*MXN1];
+	ADtype*   hw_res    =    new ADtype[MXR1*MXC1*MXN1];
 
+	//this value is decreased by 10 times, due to the random value more easily to overflow
+	ap_uint<ScaleBit1>     rescale1   = 6783;//173644;
+	ap_uint<ScaleBit1>     rescale2   = 11715;//299893;
+	ap_uint<ScaleBit1>     id_rescale = 16384;
 
-    std::cout<<"INPUT DATALOAD IN"<<std::endl;
+    std::cout<<"INPUT DATA IN..."<<std::endl;
     std::ifstream infile("input.bin",std::ios::in | std::ios::binary);
     if (!infile) {
         std::cout << "Error : " << " Input file doesn't exist !" << std::endl;
@@ -70,8 +76,8 @@ int main(){
 #endif
 
 
-    std::cout<<"DW WEIGHT DATALOAD IN"<<std::endl;
-    std::ifstream wtfile("dw_weight.bin",std::ios::in | std::ios::binary);
+    std::cout<<"DW WEIGHT LOAD IN..."<<std::endl;
+    std::ifstream wtfile("dw_wt.bin",std::ios::in | std::ios::binary);
     if (!wtfile) {
         std::cout << "Error : " << " DW Weight file doesn't exist !" << std::endl;
         exit(1);
@@ -95,10 +101,18 @@ int main(){
         std::cout<<std::endl;
     }
     #endif // DEBUG
+    
+    std::cout<<"NORM WEIGHT LOAD IN..."<<std::endl;
+    std::ifstream normfile("norm.bin",std::ios::in | std::ios::binary);
+    if (!normfile) {
+        std::cout << "Error : " << " NORM Weight file doesn't exist !" << std::endl;
+        exit(1);
+    }
+    normfile.read((char*) norm_wt, 2*N1*sizeof(Uint32));
 
 
-    std::cout<<"PW1 WEIGHT DATALOAD IN"<<std::endl;
-    std::ifstream pwwtfile("pw1_weight.bin",std::ios::in | std::ios::binary);
+    std::cout<<"PW1 WEIGHT LOAD IN..."<<std::endl;
+    std::ifstream pwwtfile("pw1_wt.bin",std::ios::in | std::ios::binary);
     if (!pwwtfile) {
         std::cout << "Error : " << " PW1 Weight file doesn't exist !" << std::endl;
         exit(1);
@@ -123,8 +137,8 @@ int main(){
 	#endif // DEBUG
 
 
-    std::cout<<"PW2 WEIGHT DATALOAD IN"<<std::endl;
-    std::ifstream pwwtfile2("pw2_weight.bin",std::ios::in | std::ios::binary);
+    std::cout<<"PW2 WEIGHT LOAD IN..."<<std::endl;
+    std::ifstream pwwtfile2("pw2_wt.bin",std::ios::in | std::ios::binary);
     if (!pwwtfile2) {
         std::cout << "Error : " << " PW2 Weight file doesn't exist !" << std::endl;
         exit(1);
@@ -149,13 +163,14 @@ int main(){
 	#endif // DEBUG
 
 
-    std::cout<<"Hardware Compute"<<std::endl;
-    FusedDW_PW_InMode((ABWtype*)in,(WBWtype*)dw_wt,(WBWtype2*)pw1_wt,(WBWtype3*)pw2_wt,(OBWtype*)in,(OBWtype*)hw_res);
+    std::cout<<"<----Hardware Computing---->"<<std::endl;
+    FusedDW_PW_InMode((ABWtype*)in,(NWtype*)norm_wt,(WBWtype*)dw_wt,(WBWtype2*)pw1_wt,(WBWtype3*)pw2_wt,(OBWtype*)in,(OBWtype*)hw_res,
+    		           rescale1,rescale2,id_rescale,R1,C1,M1,N1);
 
 
-    std::cout<<"Ref Result LOAD"<<std::endl;
+    std::cout<<"Ref Result LOAD..."<<std::endl;
     //RxCxM
-    std::ifstream resfile("hls_res.bin",std::ios::in | std::ios::binary);
+    std::ifstream resfile("sw_res.bin",std::ios::in | std::ios::binary);
     if (!resfile) {
         std::cout << "Error : " << " Result file doesn't exist !" << std::endl;
         exit(1);
@@ -173,7 +188,7 @@ int main(){
             	if (tmp!= tmp2){
             		w_cnt+=1;
 #ifdef DEBUG
-            			std::cout<<"R BUG "<<k<<","<<i<<","<<j<<","<<ii<<" "<<tmp<<" "<<tmp2<<"   ";
+            			std::cout<<k<<","<<i<<","<<j<<" "<<tmp<<" "<<tmp2<<"   "<<std::endl;
 #endif
             		}
             	}
@@ -185,7 +200,7 @@ int main(){
     if(w_cnt!=0){
     	std::cout<<"+++++++++++++++++++++++++++++++++++++++++++++++"<<std::endl;
     	std::cout<<"+++++++++++++++Exist Wrong Result++++++++++++++"<<std::endl;
-    	std::cout<<"Wrong Result happens "<<w_cnt<<" times"<<std::endl;
+    	std::cout<<"++++++Wrong Result happens "<<w_cnt<<" times++++++"<<std::endl;
     	std::cout<<"+++++++++++++++++++++++++++++++++++++++++++++++"<<std::endl;
 
     }else{
@@ -194,6 +209,8 @@ int main(){
     	std::cout<<"=================================================="<<std::endl;
 
     }
+      ap_int<8> a= -11,b=10,c=11;
+      std::cout<< (a>>1) <<" "<< (b>>1) <<" "<<(c>>1)<<std::endl;
 //    ap_fixed<16,6> scale ;// 8-bit integer
 //    scale = 133.45; // because the sign bit, integer range:[-128,127]
 //    std::cout<<"scale1: "<<scale<<std::endl;
