@@ -6,8 +6,9 @@ hls 编写的细粒度流水核，针对dwconv+pwconv+pwconv的block结构。内
 ## 工程创建
 1. 生成测试文件
 testbench文件夹下中执行```python tb.py```  
-注意```tb.py```中```R1\C1\DwTn1\PwTn1```等参数需要和```block.h```中保持一致，否则测2试失败   
+注意```tb.py```中```R1\C1\DwTn1\PwTn1```等参数需要和```block.h```中保持一致，否则测试失败，因此这这里异构BPU分别为单独的子文件夹     
 2. 创建工程并进行综合仿真
+安装依赖
 ```
 sudo apt-get install libc6-dev-amd64
 sudo apt-get install linux-libc-dev:i386
@@ -16,11 +17,11 @@ ln -s /usr/include/asm-generic /usr/include/asm
 打开vitis HLS Command Prompt,在当前目录下执行：
 ```vitis_hls -f build_hls.tcl``` 
 
-3. 输入以下命令选择图形化界面操作
+1. 输入以下命令选择图形化界面操作
 
-```vitis_hls -p BPU3Core/```
+```vitis_hls -p BPUx/```
 
-## 代码说明
+## HLS代码说明
 ``block.cpp``:top文件，函数``BPUx``意味着子核心      
 ```dw_engine.h```:DWcore单元包含数据、权重加载与计算操作  
 ```dwconv.h```:包含了**3x3, 7x7 以及KxK Depthwise**计算核，内部可通过```ifndef Debug```来进行debug  
@@ -45,7 +46,10 @@ pw2conv:HxWx(exN) -> HxWxN 1x1 kernel
 ## 涉及访存细节
 - 权重**预取**以及**重排**对访存影响很大，这里经过优化```brust```模式充分启用并且掩盖了```setup latency```
 - 第一层的输入数据padding离线完成，后续的padding由输出单元完成。这里局限于```hls```，带判断条件的访存难以启动```brust```
-
+## Vivado
+这里不涉及代码编写，主要是借助Vivado工具将三个BPU核心导入到```block design```中，并添加PS与总线，这里如果不熟悉可以参看[教程](https://github.com/louvinci/HLStoFPGA)
+## SDK
+这里主要是编写的测试程序，分别有 1）SD卡读写测试; 2) 单核BPU顺序层处理测试; 3)三核心并行处理测试  
 ## 注意事项
 - 由于这里只有```INT8```精度，随机数范围为```-127~127```    
 - 目前```block_tb.cpp```中开辟的数组为全局数组以避免数据过大局部变量超限，实际上板子测试时，内存分配应该**保持连续地址**，```new```方式并不能保证
