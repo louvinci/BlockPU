@@ -1,5 +1,53 @@
 #include"pwconv.h"
 
+
+template<unsigned Tn,unsigned Tr,unsigned Tc,unsigned Abit,unsigned InWidth>
+void reduceload_axi_old( ap_uint<InWidth>  *ddr_burst,
+					 ap_int<Abit>      buf[Tn][Tr+6][Tc+6],
+					unsigned short   ch,  unsigned short row,unsigned short col,
+					unsigned offsetR, unsigned offsetC,unsigned short R,unsigned short C)
+{
+#pragma HLS inline off
+#pragma HLS array_partition variable=buf dim=1 complete
+
+	static_assert(InWidth % Abit == 0,"DWIn bandwidth must be divisible by Abit");
+	const unsigned short NUM = InWidth / Abit;
+	const unsigned short tnloops = Tn/NUM;
+
+	static_assert(Tn % NUM == 0,"DWIn bandwidth must be divisible by NUM");
+
+    ap_uint<InWidth> DATA;
+
+    //j = row * S - P, j < (row + Tr - 1) * S + K - P
+	//row+r-3 <0 | row+r-3>=R | col +c-3<0 | col+c-3>=C
+	DwIN_R:
+	for(unsigned short  r = 0; r < Tr+6; r++) {
+		DwIN_C:
+		for(unsigned short c = 0; c < Tc+6; c++) {
+			ap_uint<InWidth>  * brust_addr = ddr_burst + (row+r-3)*offsetR*tnloops + (col+c-3)*offsetC*tnloops + ch*tnloops;
+			DwIN_P:
+			for(unsigned short tnn =0;tnn < tnloops;tnn++){ //tnn < tnloops
+#pragma HLS PIPELINE II=1
+
+				if (row+r<3 | row+r> R+2 | col +c<3 | col+c>C+2){
+					for(unsigned char tn = 0; tn < NUM; tn++) {
+#pragma HLS UNROLL
+						buf[tnn*NUM+tn][r][c]= 0;
+					}
+				}else{
+					//DATA = ddr_burst[(row+r-3)*offsetR*tnloops + (col+c-3)*offsetC*tnloops + ch*tnloops + tnn];
+					DATA = brust_addr[tnn];
+					for(unsigned char tn = 0; tn < NUM; tn++) {
+#pragma HLS UNROLL
+						buf[tnn*NUM+tn][r][c].range(Abit-1, 0) = DATA.range( (tn+1)*Abit-1, tn*Abit);
+					}
+				}
+			}
+		}
+	}
+
+}
+
 template<unsigned Tr,unsigned Tc,unsigned Tn,unsigned Tm,unsigned Abit,unsigned Wbit,unsigned Accbit>
 void CONV1x1(ap_uint<Abit> in[Tn][Tr][Tc],ap_uint<Wbit> weights[Tm][Tn],ap_int<Accbit> out[Tm][Tr][Tc],
              unsigned n,bool relu){
