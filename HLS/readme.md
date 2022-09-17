@@ -7,14 +7,15 @@ testbench中```tb.py```中的硬件参数也不同，因此另立文件夹比较
 
 ## 注意事项
 
-csim以及co-sim时，需要修改```dw_engine.h```中 ```reducedload_axi```以及```expandload3x3_axi```函数中**条件加载语句**。   
-具体来讲，这里为了使能 ```Burst```访问，采样了越界模式，多读取了一些不重要的数据，上板验证是正确的。  
+- csim以及co-sim时，需要修改```dw_engine.h```中 ```reducedload_axi```以及```expandload3x3_axi```函数中**条件加载语句**。   
+具体来讲，这里为了使能 ```Burst```访问，采用了越界模式，多读取了一些不重要的数据(未被使用)，上板验证是正确的。  
+- 将```Pipeline```pragma提前也是为了方便综合器识别，将loop进行展开以避免多个axi-burst setup latency
 ```C++
 DwIN_R:
 	for(unsigned short  r = 0; r < Tr+6; r++) {
 		DwIN_C:
 		for(unsigned short c = 0; c < Tc+6; c++) {
-#pragma HLS PIPELINE II=8
+#pragma HLS PIPELINE II=8 // 这里II=8是为了方便综合器识别连续访问。
 			ap_uint<InWidth>  * brust_addr = ddr_burst + (row+r-3)*offsetR*tnloops + (col+c-3)*offsetC*tnloops + ch*tnloops;
 			DwIN_P1:
 			for(unsigned short tnn =0;tnn < tnloops;tnn++){
