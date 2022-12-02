@@ -3,9 +3,12 @@
 #include<iostream>
 ap_int<32> MUL_INT8(ap_int<8> A, ap_int<8> W0, ap_int<8> W1)
 {
-    ap_int<24> W;
-    W = (W0, ap_uint<16>(0)) + ap_int<24>(W1);
-
+    //ap_int<24> W;
+    //W = (W0, ap_uint<16>(0)) + ap_int<24>(W1);
+    ap_int<25> W= W0;
+    W <<= 16;
+    W+=W1;
+	
     ap_int<16> r0;
     ap_int<16> r1;
 
