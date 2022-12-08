@@ -45,7 +45,9 @@ pw2conv:HxWx(exN) -> HxWxN 1x1 kernel
 ```(DWPW1_FusedPE+coldbuffer) + PW2core```
 ## 涉及访存细节
 - 权重**预取**以及**重排**对访存影响很大，这里经过优化```brust```模式充分启用并且掩盖了```setup latency```
-- 第一层的输入数据padding离线完成，后续的padding由输出单元完成。这里局限于```hls```，带判断条件的访存难以启动```brust```
+- 关于输入图片padding，一般通过```if-else```来控制，即条件访存。然而，在该带判断的方式下，该方式难以启动```brust```。因此目前DW核心中```dw_engine.h```的输入函数```reduceload_axi```函数涉及片外越界访问。为了引导```hls```识别，在外层加了```PIPELINE=实际访存延迟```约束。
+## Vitis hls
+修改```reduceload_axi```中越界部分，即将片外访存移至条件语句内并将```PIPELINE II=1```移至访存循环内。csim/cosim可以验证功能正确性。但是此时cosim给出的延迟数据则为该模块未识别```brust```时的性能报告，此时上板效果也比较差。越界访问方式，实际上版功能是正确的，导出RTL时，选择越界方式。
 ## Vivado
 这里不涉及代码编写，主要是借助Vivado工具将三个BPU核心导入到```block design```中，并添加PS与总线，这里如果不熟悉可以参看[教程](https://github.com/louvinci/HLStoFPGA)
 ## SDK
