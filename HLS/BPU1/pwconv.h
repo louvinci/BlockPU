@@ -19,7 +19,6 @@ ap_int<32> MUL_INT8(ap_int<8> A, ap_int<8> W0, ap_int<8> W1)
 
     return (r0,r1);
 }
-
 template<unsigned Tr,unsigned Tc,unsigned Tn,unsigned Tm,unsigned Abit,unsigned Wbit,unsigned Accbit>
 void CONV1x1_OP1(ap_int<Abit> in[Tn][PRELOAD][Tr][Tc],ap_int<Wbit> weights[PRELOAD][Tm][Tn],ap_int<Accbit> out[Tm][Tr][Tc],
              unsigned short n){
@@ -66,10 +65,9 @@ void CONV1x1_OP1(ap_int<Abit> in[Tn][PRELOAD][Tr][Tc],ap_int<Wbit> weights[PRELO
 }
 //TODO the partition size is larger than the need
 template<unsigned Tr,unsigned Tc,unsigned Tn,unsigned Tm,unsigned Abit,unsigned Wbit,unsigned Accbit>
-void CONV1x1_OP(ap_int<Abit> in[Tn][PRELOAD][Tr][Tc],ap_int<Wbit> weights[PRELOAD][Tm][Tn],ap_int<Accbit> out[Tm][Tr][Tc],
+void CONV1x1_OP(ap_int<Abit*Tn> in[PRELOAD][Tr][Tc],ap_int<Wbit> weights[PRELOAD][Tm][Tn],ap_int<Accbit> out[Tm][Tr][Tc],
              unsigned short n){
 //#pragma HLS inline off
-#pragma HLS array_partition variable=in dim=1 complete
 #pragma HLS array_partition variable=out dim=1 complete
 #pragma HLS array_partition variable=weights dim=2 complete
 #pragma HLS array_partition variable=weights dim=3 complete
@@ -116,18 +114,20 @@ void CONV1x1_OP(ap_int<Abit> in[Tn][PRELOAD][Tr][Tc],ap_int<Wbit> weights[PRELOA
                 	ap_int<32> tmp;
                 	ap_int<16> tmp1,tmp2;
                     if(index==0 && n==0 && tn ==0 ){
-                    	tmp = MUL_INT8(in[tn][index][r][c],weights[index][tm][tn],weights[index][tm+1][tn]);
+                    	//tmp = MUL_INT8(in[tn][index][r][c],weights[index][tm][tn],weights[index][tm+1][tn]);
+						tmp = MUL_INT8(in[index][r][c].range((tn+1)*Abit-1,tn*Abit),weights[index][tm][tn],weights[index][tm+1][tn]);
                         tmp1.range(15,0) = tmp.range(31,16);
                         tmp2.range(15,0) = tmp.range(15,0);
-                        out[tm][r][c]   = ap_int<32>(tmp1);
-                        out[tm+1][r][c] = ap_int<32>(tmp2);
+                        out[tm][r][c]   = ap_int<Accbit>(tmp1);
+                        out[tm+1][r][c] = ap_int<Accbit>(tmp2);
 
                     }else{
-						tmp = MUL_INT8(in[tn][index][r][c],weights[index][tm][tn],weights[index][tm+1][tn]);
+						//tmp = MUL_INT8(in[tn][index][r][c],weights[index][tm][tn],weights[index][tm+1][tn]);
+						tmp = MUL_INT8(in[index][r][c].range((tn+1)*Abit-1,tn*Abit),weights[index][tm][tn],weights[index][tm+1][tn]);
 						tmp1.range(15,0) = tmp.range(31,16);
 						tmp2.range(15,0) = tmp.range(15,0);
-						out[tm][r][c]   += ap_int<32>(tmp1);
-						out[tm+1][r][c] += ap_int<32>(tmp2);
+						out[tm][r][c]   += ap_int<Accbit>(tmp1);
+						out[tm+1][r][c] += ap_int<Accbit>(tmp2);
                     }
                 }
             }
@@ -149,7 +149,7 @@ void CONV1x1_OP(ap_int<Abit> in[Tn][PRELOAD][Tr][Tc],ap_int<Wbit> weights[PRELOA
 
 
 template<unsigned Tr,unsigned Tc,unsigned Tn,unsigned Tm,unsigned Abit,unsigned Wbit,unsigned Accbit,signed Size>
-void CONV1x1_acc_OP(ap_int<Abit> in[Tn][Tr][Tc],ap_int<Wbit> weights[PRELOAD][Tm][Tn],ap_int<Accbit> out[Tm][Size],
+void CONV1x1_acc_OP(ap_int<Abit*Tn> in[Tr][Tc],ap_int<Wbit> weights[PRELOAD][Tm][Tn],ap_int<Accbit> out[Tm][Size],
              unsigned short n, unsigned short offset){
 //#pragma HLS inline off
 #pragma HLS array_partition variable=in dim=1 complete
@@ -196,20 +196,21 @@ void CONV1x1_acc_OP(ap_int<Abit> in[Tn][Tr][Tc],ap_int<Wbit> weights[PRELOAD][Tm
     	addr =  offset*PRELOAD + index*TRC + r*Tc+c ;
 		for(unsigned short tm=0; tm< Tm; tm+=2){
 #pragma HLS UNROLL
-			for(unsigned short tn=0;tn<Tn;tn++){
+			for(unsigned char tn=0;tn<Tn;tn++){
 #pragma HLS UNROLL
             	ap_int<32> tmp;
             	ap_int<16> tmp1,tmp2;
 				if(n==0 && tn ==0){
 					//out[tm][addr] = in[tn][r][c]*weights[index][tm][tn];
-                	tmp = MUL_INT8(in[tn][r][c],weights[index][tm][tn],weights[index][tm+1][tn]);
+                	tmp = MUL_INT8(in[r][c].range((tn+1)*Abit-1,tn*Abit),weights[index][tm][tn],weights[index][tm+1][tn]);
                     tmp1.range(15,0) = tmp.range(31,16);
                     tmp2.range(15,0) = tmp.range(15,0);
                     out[tm][addr]    = ap_int<32>(tmp1);
                     out[tm+1][addr]  = ap_int<32>(tmp2);
 				}else{
 					//out[tm][addr] += in[tn][r][c]*weights[index][tm][tn];
-                	tmp = MUL_INT8(in[tn][r][c],weights[index][tm][tn],weights[index][tm+1][tn]);
+                	//tmp = MUL_INT8(in[tn][r][c],weights[index][tm][tn],weights[index][tm+1][tn]);
+					tmp = MUL_INT8(in[r][c].range((tn+1)*Abit-1,tn*Abit),weights[index][tm][tn],weights[index][tm+1][tn]);
                     tmp1.range(15,0) = tmp.range(31,16);
                     tmp2.range(15,0) = tmp.range(15,0);
                     out[tm][addr]    += ap_int<32>(tmp1);

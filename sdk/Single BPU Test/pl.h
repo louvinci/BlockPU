@@ -1,9 +1,11 @@
-#include"xfuseddw_pw_inmode.h"
-
+#include"xqbpu1.h"
+// this file can be found in the 'hw/drivers/QBPU1_v1_0/src'
 typedef signed char int8_t;
 
-static XFuseddw_pw_inmode hls_inst;
+static XQbpu1 hls_inst_Q1;
 
-void pl_init();
+void pl_init_Q1();
 
-void test(int8_t* in,int8_t* dw_wt,int8_t* pw1_wt,int8_t* pw2_wt,int8_t* branch,int8_t* out);
+void BPU1(int8_t* in,int8_t* norm,int8_t* dw_wt,int8_t* pw1_wt,int8_t* pw2_wt,int8_t* branch,int8_t* out,
+		int rescale1, int rescale2,int id_rescale,
+		int R,int C,int M,int N,int K, int PadN);

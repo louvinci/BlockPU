@@ -44,7 +44,7 @@ void PW_DDR( ap_int<Accbit> buf[Tm][Tr][Tc],
 
 template<unsigned Tr, unsigned Tc, unsigned Tm,unsigned Inbit,unsigned Outbit,unsigned ScaleBit,unsigned IntBit>
 void QBramCopy(ap_int<Inbit>  inbuf[Tm][Tr][Tc],
-		       ap_int<Outbit> outbuf[Tm][Tr][Tc],ap_uint<ScaleBit> rescale){
+		       ap_int<Outbit*Tm> outbuf[Tr][Tc],ap_uint<ScaleBit> rescale){
 //#pragma HLS inline off
 #pragma HLS array_partition variable=outbuf dim=1 complete
 	DBuffer:
@@ -55,14 +55,14 @@ void QBramCopy(ap_int<Inbit>  inbuf[Tm][Tr][Tc],
 #pragma HLS UNROLL
 				ap_int<Inbit> in = inbuf[k][r][c];
 				ap_int<Outbit> res = quant<Inbit,Outbit,ScaleBit,IntBit>(in,rescale);
-				outbuf[k][r][c].range(Outbit-1,0) = res.range(Outbit-1,0);
+				outbuf[r][c].range((k+1)*Outbit-1,k*Outbit) = res.range(Outbit-1,0);
 			}
 		}
 	}
 }
 
 
-
+//fixed means the parallel equals the weight port's width,Tm == (WtWidth / Wbit)
 template<unsigned Tn,unsigned Tm,unsigned Wbit,unsigned WtWidth>
 void ldwtTm_fixed( ap_uint<WtWidth> *ddr_burst,
 				   ap_int<Wbit> buf[PRELOAD][Tm][Tn],
@@ -102,7 +102,7 @@ void ldwtTm_fixed( ap_uint<WtWidth> *ddr_burst,
 
 
 
-// wt:M/Tm*N/Tn *Tm*Tn
+// wt:M/Tm*N/Tn *Tm*Tn, fixed means the parallel equals the weight port's width,Tn == (WtWidth / Wbit)
 template<unsigned Tn,unsigned Tm,unsigned Wbit,unsigned WtWidth>
 void ldwt1x1_fixed( ap_uint<WtWidth> *ddr_burst,
 					ap_int<Wbit>     buf[PRELOAD][Tm][Tn],
@@ -258,7 +258,7 @@ void loadAt1x1_bram(ap_uint<Abit*Tn> src[Size], ap_uint<Abit> dst[Tn][Tr][Tc],un
 
 
 template <unsigned Tr, unsigned Tc,unsigned DwTn,unsigned PwTn,unsigned Abit,unsigned Size>
-void ldbram_ReducedOP(ap_int<Abit*DwTn> src[Size], ap_int<Abit> dst[PwTn][PRELOAD][Tr][Tc],unsigned short n){
+void ldbram_ReducedOP(ap_int<Abit*DwTn> src[Size], ap_int<Abit*PwTn> dst[PRELOAD][Tr][Tc],unsigned short n){
 
 //#pragma HLS inline off
 #pragma HLS array_partition variable=dst dim=1 complete
@@ -286,7 +286,7 @@ ap_uint<Abit*PwTn> DATA;
 			DATA.range(Abit*PwTn-1,0) = src[offset1+(index/times)*Tr*Tc+r*Tc+c].range(left,right);
             for(unsigned tn=0;tn<PwTn;tn++){
 #pragma HLS UNROLL
-                dst[tn][index][r][c].range(Abit-1,0) = DATA.range((tn+1)*Abit -1, tn*Abit);
+                dst[index][r][c].range((tn+1)*Abit-1,tn*Abit) = DATA.range((tn+1)*Abit -1, tn*Abit);
             }
 			if (c==Tc-1){
 				c=0;
@@ -363,11 +363,11 @@ void InnerPW1_OP(ap_uint<PW1Width>  *Wt1ddrsrc,
 
 	bool flag = true;
 	ap_int<Wbit>  Wbuff_0[PRELOAD][Tm][PwTn];
-	ap_int<Abit>  Abuff_0[PwTn][PRELOAD][Tr][Tc];
+	ap_int<Abit*PwTn>  Abuff_0[PRELOAD][Tr][Tc];
 #pragma HLS BIND_STORAGE variable=Abuff_0 type=ram_2p impl=bram
 
 	ap_int<Wbit>  Wbuff_1[PRELOAD][Tm][PwTn];
-	ap_int<Abit>  Abuff_1[PwTn][PRELOAD][Tr][Tc];
+	ap_int<Abit*PwTn>  Abuff_1[PRELOAD][Tr][Tc];
 #pragma HLS BIND_STORAGE variable=Abuff_1 type=ram_2p impl=bram
 
 
@@ -417,7 +417,7 @@ void OutnerPW2_OP(ap_uint<PW2Width> *Wt2ddrsrc,
 //#pragma HLS inline off
 	ap_int<Wbit>  Wbuff_0[PRELOAD][PwTn][Tm]; //transpose
 	ap_int<Wbit>  Wbuff_1[PRELOAD][PwTn][Tm];
-	ap_int<Abit>  dbuf[Tm][Tr][Tc];
+	ap_int<Abit*Tm>  dbuf[Tr][Tc];
 	unsigned short loops = N/(PwTn*PRELOAD);
 	unsigned short pw2m=0,pre_pw2m=0;
 	bool flag = true;
